@@ -10,6 +10,7 @@ const CUE_SHEET = null;
 
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MOTION = REDUCED_MOTION ? 0.15 : 1;
+const PORTRAIT = innerHeight > innerWidth;
 
 // ?quiet — straight into the scene, no gate, no audio (art direction / review)
 // ?phase=0..1 — freeze the sun cycle for art direction (1 golden, 0.45 dusk, 0 blue hour)
@@ -887,12 +888,16 @@ const catTail = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.42, 5),
 catTail.position.set(0.12, 0.16, -0.16);
 catTail.rotation.z = -0.9;
 cat.add(catTail);
-cat.position.set(11.5, 1.1, 1.6); // on the wall, facing the sea
+// on the wall, facing the sea. Portrait frames see a narrower slice of the
+// wall, so the cat keeps to the visible middle there — subtly, by the planter.
+const CAT_HOME = PORTRAIT ? 2.2 : 11.5;
+const CAT_RANGE = PORTRAIT ? [-4.5, 4.8] : [-19, 20];
+cat.position.set(CAT_HOME, 1.1, 1.6);
 terrace.add(cat);
 
 // the cat lives on its own clock — nothing it does repeats on a loop
 const catState = {
-  mode: "sit", t0: 0, dur: 1, from: 11.5, to: 11.5, dir: 1,
+  mode: "sit", t0: 0, dur: 1, from: CAT_HOME, to: CAT_HOME, dir: 1,
   nextStretch: 45 + Math.random() * 90,
   nextMove: 200 + Math.random() * 280,
 };
@@ -1527,7 +1532,7 @@ function tick() {
     if (t > catState.nextMove) {
       catState.mode = "turn";
       catState.t0 = t;
-      catState.to = -19 + Math.random() * 39;
+      catState.to = CAT_RANGE[0] + Math.random() * (CAT_RANGE[1] - CAT_RANGE[0]);
       catState.dir = Math.sign(catState.to - cat.position.x) || 1;
     } else if (t > catState.nextStretch) {
       catState.mode = "stretch";

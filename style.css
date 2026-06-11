@@ -175,11 +175,21 @@ body {
 .sound-pill:hover, .sound-pill:focus-visible {
   background: rgba(255, 247, 239, 0.14);
 }
-.sound-pill[hidden] { display: none; }
+.sound-pill svg { display: none; width: 19px; height: 19px; }
+.sound-pill[hidden] { display: none !important; }
 
 @media (max-width: 720px) {
   .hud { padding: 18px 20px; }
-  .sound-pill { top: 16px; right: 20px; }
+  .sound-pill {
+    top: 16px; right: 20px;
+    width: 42px; height: 42px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    letter-spacing: 0;
+  }
+  .sound-pill svg { display: block; }
+  .sound-pill .pill-label { display: none; }
   .wordmark h1 { font-size: 20px; }
   .clock { font-size: 16px; }
   .hud-bottom { flex-direction: column; align-items: stretch; gap: 10px; }
