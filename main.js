@@ -275,6 +275,77 @@ for (let i = 0; i < 6; i++) {
   person(-4 + i * 1.7 + Math.random(), 4.2 + Math.random() * 2.2, { dancer: true });
 }
 
+// --- walkers: waiters and passersby, never in a hurry -------------------------
+const walkers = [];
+function makeWalker({ tint, scale = 0.8, slim = false }) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry((slim ? 0.34 : 0.42) * scale, 1.2 * scale, 6, 14),
+    new THREE.MeshStandardMaterial({ color: tint, roughness: 0.65 })
+  );
+  body.position.y = 1.08 * scale;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.29 * scale, 14, 14),
+    new THREE.MeshStandardMaterial({ color: "#3d2a30", roughness: 0.6 })
+  );
+  head.position.y = 2.12 * scale;
+  g.add(body, head);
+  terrace.add(g);
+  return g;
+}
+
+// waiters: drift from their station to a table, dwell, drift back
+for (const station of [new THREE.Vector3(9, 0, 24.5), new THREE.Vector3(-13, 0, 24.5)]) {
+  walkers.push({
+    kind: "waiter",
+    g: makeWalker({ tint: "#42333b", scale: 0.82, slim: true }),
+    state: "post", stateUntil: 8 + Math.random() * 20,
+    from: station.clone(), to: station.clone(), home: station,
+    t0: 0, dur: 1, speed: 1.0 + Math.random() * 0.15,
+    phase: Math.random() * Math.PI * 2,
+  });
+  walkers[walkers.length - 1].g.position.copy(station);
+}
+
+// passersby: stroll the promenade behind the tables, sometimes in pairs
+const PROMENADE_Z = 23.5;
+for (let i = 0; i < 3; i++) {
+  const w = {
+    kind: "stroller",
+    g: makeWalker({ tint: PALETTE[i % PALETTE.length], scale: 0.8 + Math.random() * 0.1 }),
+    state: "away", stateUntil: 6 + i * 22 + Math.random() * 18,
+    from: new THREE.Vector3(), to: new THREE.Vector3(),
+    t0: 0, dur: 1, speed: 0.85 + Math.random() * 0.3,
+    phase: Math.random() * Math.PI * 2,
+    pairOffset: null,
+  };
+  w.g.visible = false;
+  walkers.push(w);
+}
+
+// the flaneur: the one you live vicariously through. Slowest walk on the
+// terrace, a shade lighter than everyone, comes to the rail just to watch.
+const flaneur = {
+  kind: "flaneur",
+  g: makeWalker({ tint: "#7d6a59", scale: 0.96, slim: true }),
+  state: "away", stateUntil: 12,
+  from: new THREE.Vector3(), to: new THREE.Vector3(),
+  t0: 0, dur: 1, speed: 0.72,
+  phase: Math.random() * Math.PI * 2,
+  legs: [],
+};
+flaneur.g.visible = false;
+walkers.push(flaneur);
+
+function walkerSetWalk(w, t, from, to) {
+  w.from.copy(from);
+  w.to.copy(to);
+  w.t0 = t;
+  w.dur = from.distanceTo(to) / w.speed;
+  w.state = "walking";
+  w.g.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+}
+
 // --- DJ booth ---------------------------------------------------------------
 const booth = new THREE.Group();
 const desk = new THREE.Mesh(
@@ -571,6 +642,9 @@ const SHOTS = [
   { // among the tables — candles, dancers, the booth
     pos: new THREE.Vector3(7, 3.4, 22), look: new THREE.Vector3(-6, 2.2, -2),
     drift: 1.5, bob: 0.25 },
+  { // the booth — DJ and dancers against the open sea
+    pos: new THREE.Vector3(1.5, 3.3, 11.5), look: new THREE.Vector3(-3.5, 1.9, -28),
+    drift: 0.7, bob: 0.12 },
 ];
 const SHOT_LOCK = parseInt(PARAMS.get("shot"), 10);
 
@@ -638,9 +712,90 @@ function tick() {
       p.g.rotation.z = Math.sin(t * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
     }
   }
+  // walkers: ease in and out of every journey, gait as a quiet two-beat
+  for (const w of walkers) {
+    if (w.state === "walking") {
+      const p = Math.min(1, (t - w.t0) / w.dur);
+      const eased = p * p * (3 - 2 * p);
+      w.g.position.lerpVectors(w.from, w.to, eased);
+      const stride = Math.min(1, Math.sin(p * Math.PI) * 3); // soft start and stop
+      const a = t * w.speed * 5.2 + w.phase;
+      w.g.position.y += (1 - Math.cos(a * 2)) * 0.014 * stride * MOTION;
+      w.g.rotation.z = Math.sin(a) * 0.035 * stride * MOTION;
+      if (p >= 1) {
+        if (w.legs && w.legs.length) {
+          walkerSetWalk(w, t, w.g.position, w.legs.shift());
+        } else if (w.kind === "stroller") {
+          w.g.visible = false;
+          w.state = "away";
+          w.stateUntil = t + 18 + Math.random() * 45;
+        } else if (w.kind === "flaneur") {
+          if (w.g.position.z < 6) {
+            w.state = "gaze"; // arrived at the rail: just watch
+            w.stateUntil = t + 26 + Math.random() * 22;
+            w.g.rotation.y = Math.PI;
+          } else {
+            w.g.visible = false;
+            w.state = "away";
+            w.stateUntil = t + 70 + Math.random() * 70;
+          }
+        } else {
+          const atHome = w.to.distanceTo(w.home) < 0.5;
+          w.state = atHome ? "post" : "dwell";
+          w.stateUntil = t + (atHome ? 14 + Math.random() * 26 : 6 + Math.random() * 8);
+        }
+      }
+    } else {
+      // at rest: the same breath as everyone else
+      w.g.position.y = Math.sin(t * 0.55 + w.phase) * 0.012 * MOTION;
+      w.g.rotation.z = Math.sin(t * 0.22 + w.phase) * 0.02 * MOTION;
+      w.g.rotation.x = w.state === "gaze" ? -0.035 : 0; // a slight lean back, taking it in
+      if (t > w.stateUntil) {
+        if (w.kind === "waiter") {
+          if (w.state === "post") {
+            const [tx, tz] = tableSpots[Math.floor(Math.random() * tableSpots.length)];
+            walkerSetWalk(w, t, w.g.position, new THREE.Vector3(tx + 1.9, 0, tz + 0.6));
+          } else {
+            walkerSetWalk(w, t, w.g.position, w.home);
+          }
+        } else if (w.kind === "flaneur") {
+          if (w.state === "gaze") {
+            // seen enough; drift back out the way he came
+            const exitX = w.g.position.x > 0 ? 24 : -24;
+            w.legs = [new THREE.Vector3(exitX, 0, PROMENADE_Z)];
+            walkerSetWalk(w, t, w.g.position, new THREE.Vector3(w.g.position.x, 0, PROMENADE_Z));
+          } else {
+            // enter, stroll the promenade, come down to the rail near the cat
+            const side = Math.random() < 0.5 ? 1 : -1;
+            const railX = side * (10 + Math.random() * 4);
+            w.g.visible = true;
+            w.legs = [new THREE.Vector3(railX, 0, 3.4)];
+            walkerSetWalk(
+              w, t,
+              new THREE.Vector3(24 * side, 0, PROMENADE_Z),
+              new THREE.Vector3(railX, 0, PROMENADE_Z)
+            );
+          }
+        } else {
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          const z = PROMENADE_Z + (Math.random() - 0.5) * 1.6;
+          w.g.visible = true;
+          walkerSetWalk(
+            w, t,
+            new THREE.Vector3(-22 * dir, 0, z),
+            new THREE.Vector3(22 * dir, 0, z)
+          );
+        }
+      }
+    }
+  }
+
+  // the DJ's moment: every few minutes, turn from the decks and watch the horizon
+  const enjoy = THREE.MathUtils.smoothstep(Math.sin(t * 0.024 + 4.2), 0.82, 0.94);
   const da = t * (1.3 + energy * 0.7);
-  dj.position.y = (Math.sin(da) + Math.sin(da * 1.618)) * 0.02 * MOTION;
-  dj.rotation.x = Math.sin(da) * 0.035 * MOTION;
+  dj.position.y = (Math.sin(da) + Math.sin(da * 1.618)) * 0.02 * MOTION * (1 - enjoy);
+  dj.rotation.x = Math.sin(da) * 0.035 * MOTION * (1 - enjoy) - enjoy * 0.12;
+  dj.rotation.y = enjoy * Math.PI;
 
   // the cat: stillness, an occasional slow tail sweep
   catTail.rotation.z = -0.9 + Math.sin(t * 0.4) * Math.max(0, Math.sin(t * 0.07)) * 0.35 * MOTION;
