@@ -731,6 +731,13 @@ cat.add(catTail);
 cat.position.set(11.5, 1.1, 1.6); // on the wall, facing the sea
 terrace.add(cat);
 
+// the cat lives on its own clock — nothing it does repeats on a loop
+const catState = {
+  mode: "sit", t0: 0, dur: 1, from: 11.5, to: 11.5, dir: 1,
+  nextStretch: 45 + Math.random() * 90,
+  nextMove: 200 + Math.random() * 280,
+};
+
 // --- shooting stars: blue hour only, rare ------------------------------------
 const meteor = new THREE.Mesh(
   new THREE.BoxGeometry(3.2, 0.035, 0.035),
@@ -1152,8 +1159,59 @@ function tick() {
   dj.rotation.x = Math.sin(da) * 0.035 * MOTION * (1 - enjoy) - enjoy * 0.12;
   dj.rotation.y = enjoy * Math.PI;
 
-  // the cat: stillness, an occasional slow tail sweep
-  catTail.rotation.z = -0.9 + Math.sin(t * 0.4) * Math.max(0, Math.sin(t * 0.07)) * 0.35 * MOTION;
+  // the cat: stillness, a slow tail sweep, and — on its own schedule — a
+  // stretch, or a pad along the wall to a new spot
+  catTail.rotation.z = -0.9 + Math.sin(ts * 0.4) * Math.max(0, Math.sin(ts * 0.07)) * 0.35 * MOTION;
+  if (catState.mode === "sit") {
+    if (t > catState.nextMove) {
+      catState.mode = "turn";
+      catState.t0 = t;
+      catState.to = -19 + Math.random() * 39;
+      catState.dir = Math.sign(catState.to - cat.position.x) || 1;
+    } else if (t > catState.nextStretch) {
+      catState.mode = "stretch";
+      catState.t0 = t;
+    }
+  } else if (catState.mode === "stretch") {
+    // a long unhurried arch, then back to stillness
+    const k = Math.min(1, (t - catState.t0) / 4.5);
+    const arch = Math.sin(k * Math.PI);
+    catBody.scale.y = 1 + 0.24 * arch * MOTION;
+    catHead.position.y = 0.46 - 0.06 * arch * MOTION;
+    catTail.rotation.z = -0.9 + 0.5 * arch;
+    if (k >= 1) {
+      catState.mode = "sit";
+      catState.nextStretch = t + 60 + Math.random() * 120;
+    }
+  } else if (catState.mode === "turn") {
+    const k = Math.min(1, (t - catState.t0) / 1.5);
+    cat.rotation.y = THREE.MathUtils.lerp(0, catState.dir * Math.PI / 2, k * k * (3 - 2 * k));
+    if (k >= 1) {
+      catState.mode = "walk";
+      catState.t0 = t;
+      catState.from = cat.position.x;
+      catState.dur = Math.abs(catState.to - catState.from) / 0.45; // a cat is never late
+    }
+  } else if (catState.mode === "walk") {
+    const k = Math.min(1, (t - catState.t0) / catState.dur);
+    const e = k * k * (3 - 2 * k);
+    cat.position.x = THREE.MathUtils.lerp(catState.from, catState.to, e);
+    cat.position.y =
+      1.1 + Math.abs(Math.sin(ts * 7)) * 0.022 * Math.min(1, Math.sin(k * Math.PI) * 4) * MOTION;
+    if (k >= 1) {
+      catState.mode = "turnBack";
+      catState.t0 = t;
+    }
+  } else if (catState.mode === "turnBack") {
+    const k = Math.min(1, (t - catState.t0) / 1.8);
+    cat.rotation.y = THREE.MathUtils.lerp(catState.dir * Math.PI / 2, 0, k * k * (3 - 2 * k));
+    if (k >= 1) {
+      catState.mode = "sit";
+      cat.position.y = 1.1;
+      catState.nextMove = t + 240 + Math.random() * 320;
+      catState.nextStretch = t + 40 + Math.random() * 80;
+    }
+  }
 
   // shooting star: only in the blue hour, brief and faint
   if (meteorT < 0 && t > meteorAt && alt < 0.3) meteorT = t;
