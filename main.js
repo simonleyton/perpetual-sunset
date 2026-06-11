@@ -671,6 +671,44 @@ const heli = new THREE.Group();
 let heliAt = 95, heliT = -1, heliDir = 1;
 const HELI_SECONDS = 24;
 
+// --- birds: gulls in a loose flock, a pelican once in a while ------------------
+function makeBird({ body = 0.16, wing = 1.0, beak = 0 }) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: "#16101e", fog: false });
+  const b = new THREE.Mesh(new THREE.CapsuleGeometry(body, body * 3, 4, 6), mat);
+  b.rotation.z = Math.PI / 2;
+  g.add(b);
+  const wings = [];
+  for (const s of [-1, 1]) {
+    const holder = new THREE.Group();
+    const w = new THREE.Mesh(new THREE.BoxGeometry(body * 2.4, 0.03, wing), mat);
+    w.position.z = s * (wing / 2 + body * 0.5);
+    holder.add(w);
+    g.add(holder);
+    wings.push({ h: holder, s });
+  }
+  if (beak) {
+    const bk = new THREE.Mesh(new THREE.ConeGeometry(0.06, beak, 5), mat);
+    bk.rotation.z = -Math.PI / 2;
+    bk.position.set(body * 1.8 + beak / 2, -0.04, 0);
+    g.add(bk);
+  }
+  g.visible = false;
+  scene.add(g);
+  return { g, wings };
+}
+const gulls = Array.from({ length: 4 }, (_, i) => ({
+  ...makeBird({ body: 0.16, wing: 1.05 }),
+  off: { x: i * 3.4 + (i % 2) * 1.6, y: (i % 3) * 1.5, z: (i % 2 ? 2.5 : -2) + i },
+  phase: i * 1.7,
+}));
+let gullAt = 20, gullT = -1, gullDir = 1;
+const GULL_SECONDS = 22;
+
+const pelican = makeBird({ body: 0.34, wing: 1.7, beak: 0.85 });
+let pelicanAt = 160, pelicanT = -1, pelicanDir = 1;
+const PELICAN_SECONDS = 34;
+
 // --- raking light: long soft shadows toward the camera ------------------------
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
@@ -1039,6 +1077,56 @@ function tick() {
       heli.position.set(heliDir * (k * 440 - 220), 17 + Math.sin(t * 1.3) * 0.5, -115);
       heli.userData.rotor.rotation.y += 0.9;
       heli.userData.beacon.material.opacity = Math.sin(t * 6) > 0.4 ? 0.85 : 0.1;
+    }
+  }
+
+  // gulls: flap-flap-glide, weaving as a loose flock
+  if (gullT < 0 && t > gullAt) {
+    gullT = t;
+    gullDir = Math.random() < 0.5 ? 1 : -1;
+    for (const b of gulls) {
+      b.g.visible = true;
+      b.g.rotation.y = gullDir > 0 ? 0 : Math.PI;
+    }
+  }
+  if (gullT >= 0) {
+    const k = (t - gullT) / GULL_SECONDS;
+    if (k >= 1) {
+      gullT = -1;
+      gullAt = t + 80 + Math.random() * 80;
+      for (const b of gulls) b.g.visible = false;
+    } else {
+      for (const b of gulls) {
+        const burst = THREE.MathUtils.smoothstep(Math.sin(t * 0.55 + b.phase), -0.2, 0.35);
+        const flap = Math.sin(t * 20 + b.phase) * (0.12 + 0.7 * burst);
+        for (const w of b.wings) w.h.rotation.x = flap * w.s;
+        b.g.position.set(
+          gullDir * (k * 320 - 160 + b.off.x),
+          11.5 + b.off.y + Math.sin(t * 0.9 + b.phase) * 0.8 - burst * 0.4,
+          -72 + b.off.z
+        );
+      }
+    }
+  }
+
+  // the pelican: rare, low over the water, mostly glide
+  if (pelicanT < 0 && t > pelicanAt) {
+    pelicanT = t;
+    pelicanDir = Math.random() < 0.5 ? 1 : -1;
+    pelican.g.visible = true;
+    pelican.g.rotation.y = pelicanDir > 0 ? 0 : Math.PI;
+  }
+  if (pelicanT >= 0) {
+    const k = (t - pelicanT) / PELICAN_SECONDS;
+    if (k >= 1) {
+      pelicanT = -1;
+      pelicanAt = t + 280 + Math.random() * 220;
+      pelican.g.visible = false;
+    } else {
+      const burst = THREE.MathUtils.smoothstep(Math.sin(t * 0.35), 0.1, 0.5);
+      const flap = Math.sin(t * 7) * (0.06 + 0.5 * burst);
+      for (const w of pelican.wings) w.h.rotation.x = flap * w.s;
+      pelican.g.position.set(pelicanDir * (k * 300 - 150), 7.6 + Math.sin(t * 0.5) * 0.5, -64);
     }
   }
 
