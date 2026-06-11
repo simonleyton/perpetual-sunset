@@ -41,6 +41,7 @@ for (const k of Object.values(KEYS))
 
 // alt: 0 = blue hour, 0.45 = dusk, 1 = golden. Blends through dusk in between.
 const _c = new THREE.Color();
+const _warmNight = new THREE.Color("#e8924e");
 function paletteAt(key, alt) {
   if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
   return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.55);
@@ -76,6 +77,9 @@ const skyMat = new THREE.ShaderMaterial({
     uSun: { value: KEYS.golden.sun.clone() },
     uEnergy: { value: 0.5 },
     uEmber: { value: 1.0 },
+    uMoonDir: { value: new THREE.Vector3(-0.08, 0.42, -1).normalize() },
+    uMoonCol: { value: new THREE.Color("#d8dcec") },
+    uMoonI: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec3 vDir;
@@ -85,8 +89,8 @@ const skyMat = new THREE.ShaderMaterial({
     }
   `,
   fragmentShader: /* glsl */ `
-    uniform vec3 uSunDir, uHorizon, uMid, uHigh, uZenith, uSun;
-    uniform float uTime, uEnergy, uEmber;
+    uniform vec3 uSunDir, uHorizon, uMid, uHigh, uZenith, uSun, uMoonDir, uMoonCol;
+    uniform float uTime, uEnergy, uEmber, uMoonI;
     varying vec3 vDir;
     void main() {
       float h = clamp(vDir.y, 0.0, 1.0);
@@ -99,6 +103,9 @@ const skyMat = new THREE.ShaderMaterial({
       float d = distance(normalize(vDir), uSunDir);
       float ember = exp(-d * 26.0) * 0.8 + exp(-d * 8.0) * 0.42 + exp(-d * 3.0) * 0.13;
       col += uSun * ember * uEmber;
+      // the moon: small, pale, soft-edged — surfaces only once the sun is gone
+      float md = distance(normalize(vDir), uMoonDir);
+      col += uMoonCol * (smoothstep(0.030, 0.024, md) * 0.85 + exp(-md * 16.0) * 0.16) * uMoonI;
       // heavy atmospheric haze hugging the horizon
       vec3 haze = mix(uHorizon, uSun, 0.3);
       col = mix(col, haze, smoothstep(0.14, 0.0, h) * 0.45);
@@ -196,6 +203,10 @@ scene.add(new THREE.Points(starGeo, starMat));
 const lampGlow = new THREE.PointLight("#ff8f45", 6, 40, 1.8);
 lampGlow.position.set(0, 5.5, 14);
 scene.add(lampGlow);
+// second warm pool over the booth and dancers — the night answers the dark
+const danceGlow = new THREE.PointLight("#ff9a50", 0, 30, 1.9);
+danceGlow.position.set(-2, 4.2, 5);
+scene.add(danceGlow);
 
 // --- terrace ---------------------------------------------------------------
 const terrace = new THREE.Group();
@@ -600,8 +611,12 @@ function tick() {
   scene.fog.color.copy(paletteAt("fog", alt));
   sunLight.position.copy(SUN_DIR).multiplyScalar(100);
   sunLight.intensity = 0.25 + 1.25 * alt;
-  hemi.intensity = 0.35 + 0.25 * alt;
+  // the café answers the dark: warm lighting breathes up as the sun sinks
+  const night = THREE.MathUtils.smoothstep(1 - alt, 0.35, 0.92);
+  hemi.intensity = 0.28 + 0.32 * alt + 0.1 * night;
+  hemi.color.set("#c06a48").lerp(_warmNight, night * 0.6);
   starMat.opacity = Math.pow(1 - alt, 2.5) * 0.85;
+  skyMat.uniforms.uMoonI.value = Math.pow(night, 2.2) * 0.9;
 
   skyMat.uniforms.uTime.value = t;
   skyMat.uniforms.uEnergy.value = energy;
@@ -652,10 +667,12 @@ function tick() {
   }
 
   for (const b of bulbs) {
-    const k = 0.75 + 0.25 * Math.sin(t * 2.4 + b.phase);
+    const k = (0.75 + 0.25 * Math.sin(t * 2.4 + b.phase)) * (0.55 + 0.65 * night);
     b.m.material.color.setRGB(0.88 * k, 0.44 * k, 0.16 * k);
   }
-  lampGlow.intensity = 5 + Math.sin(t * 2.0) * 0.8 + energy * 2;
+  candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(0.72 + 0.45 * night);
+  lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
+  danceGlow.intensity = night * (5.5 + energy * 2.5);
 
   // cinematography: hold a composed shot with slow drift, cut to the next
   const shot = SHOTS[
