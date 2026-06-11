@@ -12,16 +12,39 @@ const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MOTION = REDUCED_MOTION ? 0.15 : 1;
 
 // ?quiet — straight into the scene, no gate, no audio (art direction / review)
-const QUIET = new URLSearchParams(location.search).has("quiet");
+// ?phase=0..1 — freeze the sun cycle for art direction (1 golden, 0.45 dusk, 0 blue hour)
+const PARAMS = new URLSearchParams(location.search);
+const QUIET = PARAMS.has("quiet");
+const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 
-// --- palette: Miami-sky golden hour, never resolving --------------------
-const SKY = {
-  horizon: new THREE.Color("#cf5a35"),
-  mid: new THREE.Color("#a04866"),
-  high: new THREE.Color("#3a2a66"),
-  zenith: new THREE.Color("#07060f"),
-  sun: new THREE.Color("#ffb478"),
+// the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
+// never full night. Cosine gives the long dwell at both ends.
+const CYCLE_MINUTES = 12;
+
+// --- palette keyframes: the cycle moves through these (Pinto registers) ------
+const KEYS = {
+  golden: {
+    horizon: "#cf5a35", mid: "#a04866", high: "#3a2a66", zenith: "#07060f",
+    sun: "#ffb478", fog: "#3a2030", seaShallow: "#396b74", glitter: "#e08a4f",
+  },
+  dusk: {
+    horizon: "#a83a30", mid: "#7e3257", high: "#2c2154", zenith: "#050410",
+    sun: "#ff9c5e", fog: "#301a2b", seaShallow: "#2c5560", glitter: "#d4703f",
+  },
+  blue: {
+    horizon: "#5c3a55", mid: "#312a5e", high: "#1b1f4a", zenith: "#04030c",
+    sun: "#6e5a8a", fog: "#131022", seaShallow: "#1e3343", glitter: "#5a6f8a",
+  },
 };
+for (const k of Object.values(KEYS))
+  for (const key of Object.keys(k)) k[key] = new THREE.Color(k[key]);
+
+// alt: 0 = blue hour, 0.45 = dusk, 1 = golden. Blends through dusk in between.
+const _c = new THREE.Color();
+function paletteAt(key, alt) {
+  if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
+  return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.55);
+}
 
 const renderer = new THREE.WebGLRenderer({
   canvas: document.getElementById("scene"),
@@ -46,12 +69,13 @@ const skyMat = new THREE.ShaderMaterial({
   uniforms: {
     uTime: { value: 0 },
     uSunDir: { value: SUN_DIR },
-    uHorizon: { value: SKY.horizon },
-    uMid: { value: SKY.mid },
-    uHigh: { value: SKY.high },
-    uZenith: { value: SKY.zenith },
-    uSun: { value: SKY.sun },
+    uHorizon: { value: KEYS.golden.horizon.clone() },
+    uMid: { value: KEYS.golden.mid.clone() },
+    uHigh: { value: KEYS.golden.high.clone() },
+    uZenith: { value: KEYS.golden.zenith.clone() },
+    uSun: { value: KEYS.golden.sun.clone() },
     uEnergy: { value: 0.5 },
+    uEmber: { value: 1.0 },
   },
   vertexShader: /* glsl */ `
     varying vec3 vDir;
@@ -62,7 +86,7 @@ const skyMat = new THREE.ShaderMaterial({
   `,
   fragmentShader: /* glsl */ `
     uniform vec3 uSunDir, uHorizon, uMid, uHigh, uZenith, uSun;
-    uniform float uTime, uEnergy;
+    uniform float uTime, uEnergy, uEmber;
     varying vec3 vDir;
     void main() {
       float h = clamp(vDir.y, 0.0, 1.0);
@@ -74,7 +98,7 @@ const skyMat = new THREE.ShaderMaterial({
       // ember sun: diffuse luminous core, long velvety falloff — no hard disc
       float d = distance(normalize(vDir), uSunDir);
       float ember = exp(-d * 26.0) * 0.8 + exp(-d * 8.0) * 0.42 + exp(-d * 3.0) * 0.13;
-      col += uSun * ember;
+      col += uSun * ember * uEmber;
       // heavy atmospheric haze hugging the horizon
       vec3 haze = mix(uHorizon, uSun, 0.3);
       col = mix(col, haze, smoothstep(0.14, 0.0, h) * 0.45);
@@ -97,10 +121,11 @@ const seaMat = new THREE.ShaderMaterial({
   uniforms: {
     uTime: { value: 0 },
     uDeep: { value: new THREE.Color("#0e2230") },
-    uShallow: { value: new THREE.Color("#396b74") },
-    uGlitter: { value: new THREE.Color("#e08a4f") },
+    uShallow: { value: KEYS.golden.seaShallow.clone() },
+    uGlitter: { value: KEYS.golden.glitter.clone() },
     uHaze: { value: new THREE.Color("#d9764a") },
     uEnergy: { value: 0.5 },
+    uDay: { value: 1.0 },
   },
   vertexShader: /* glsl */ `
     uniform float uTime;
@@ -115,7 +140,7 @@ const seaMat = new THREE.ShaderMaterial({
     }
   `,
   fragmentShader: /* glsl */ `
-    uniform float uTime, uEnergy;
+    uniform float uTime, uEnergy, uDay;
     uniform vec3 uDeep, uShallow, uGlitter, uHaze;
     varying vec2 vUv;
     varying vec3 vPos;
@@ -126,9 +151,9 @@ const seaMat = new THREE.ShaderMaterial({
       float path = exp(-pow((vUv.x - 0.42) * (7.0 - toHorizon * 4.5), 2.0));
       float sparkle = sin(vPos.x * 8.0 + uTime * 2.2) * sin(vPos.y * 13.0 - uTime * 1.7);
       sparkle = smoothstep(0.55, 1.0, sparkle) * (0.6 + uEnergy * 0.8);
-      col += uGlitter * path * (0.14 + sparkle * 0.55) * (0.25 + toHorizon * 0.85);
+      col += uGlitter * path * (0.14 + sparkle * 0.55) * (0.25 + toHorizon * 0.85) * (0.12 + 0.88 * uDay);
       // sea dissolves into the horizon haze
-      col = mix(col, uHaze, smoothstep(0.8, 1.0, vUv.y) * 0.4);
+      col = mix(col, uHaze, smoothstep(0.8, 1.0, vUv.y) * 0.4 * (0.3 + 0.7 * uDay));
       // dither against banding
       float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
       col += (grain - 0.5) * (3.0 / 255.0);
@@ -142,10 +167,32 @@ sea.position.set(0, -0.4, -140);
 scene.add(sea);
 
 // --- light -----------------------------------------------------------------
-scene.add(new THREE.HemisphereLight("#c06a48", "#171028", 0.6));
+const hemi = new THREE.HemisphereLight("#c06a48", "#171028", 0.6);
+scene.add(hemi);
 const sunLight = new THREE.DirectionalLight("#d65f33", 1.5);
 sunLight.position.copy(SUN_DIR).multiplyScalar(100);
 scene.add(sunLight);
+
+// --- stars: surface only in the blue hour ------------------------------------
+const starGeo = new THREE.BufferGeometry();
+{
+  const pts = [];
+  for (let i = 0; i < 240; i++) {
+    const az = Math.random() * Math.PI * 2;
+    const el = 0.12 + Math.random() * 1.1;
+    pts.push(
+      390 * Math.cos(el) * Math.sin(az),
+      390 * Math.sin(el),
+      390 * Math.cos(el) * Math.cos(az)
+    );
+  }
+  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+}
+const starMat = new THREE.PointsMaterial({
+  color: "#c9cfff", size: 1.6, sizeAttenuation: false,
+  transparent: true, opacity: 0, depthWrite: false,
+});
+scene.add(new THREE.Points(starGeo, starMat));
 const lampGlow = new THREE.PointLight("#ff8f45", 6, 40, 1.8);
 lampGlow.position.set(0, 5.5, 14);
 scene.add(lampGlow);
@@ -298,6 +345,94 @@ function palm(x, z, h = 9, lean = 0.12) {
 palm(-24, 5, 10, 0.16);
 palm(25, 11, 8.5, -0.1);
 
+// olive trees: low gnarled trunks, soft round canopies
+const oliveMat = new THREE.MeshStandardMaterial({ color: "#1c1426", roughness: 0.95 });
+function olive(x, z, s = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.4, 2.4, 7), oliveMat);
+  trunk.position.y = 1.2;
+  trunk.rotation.z = 0.18;
+  g.add(trunk);
+  for (const [dx, dy, dz, r] of [[0, 3.1, 0, 1.5], [1.1, 2.6, 0.4, 1.0], [-0.9, 2.7, -0.3, 1.1]]) {
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(r, 9, 7), oliveMat);
+    canopy.position.set(dx, dy, dz);
+    canopy.scale.y = 0.75;
+    g.add(canopy);
+  }
+  g.scale.setScalar(s);
+  g.position.set(x, 0, z);
+  terrace.add(g);
+}
+olive(21, 20, 1.1);
+olive(-21.5, 14, 0.9);
+
+// agaves in planters along the wall
+function agave(x, z, s = 1) {
+  const g = new THREE.Group();
+  const planter = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.4, 0.5, 8), wallMat);
+  planter.position.y = 0.25;
+  g.add(planter);
+  for (let i = 0; i < 9; i++) {
+    const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.09, 1.2, 4), oliveMat);
+    const a = (i / 9) * Math.PI * 2;
+    leaf.position.set(Math.cos(a) * 0.18, 0.85, Math.sin(a) * 0.18);
+    leaf.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55);
+    g.add(leaf);
+  }
+  g.scale.setScalar(s);
+  g.position.set(x, 0, z);
+  terrace.add(g);
+}
+agave(-7.5, 2.6, 1.0);
+agave(6, 2.6, 0.85);
+agave(17.5, 2.8, 1.1);
+
+// one umbrella pine on the far edge, holding the corner
+{
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 7, 7), oliveMat);
+  trunk.position.y = 3.5;
+  trunk.rotation.z = -0.06;
+  g.add(trunk);
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 7), oliveMat);
+  canopy.position.y = 7.6;
+  canopy.scale.y = 0.42;
+  g.add(canopy);
+  g.position.set(-27, 0, 10);
+  terrace.add(g);
+}
+
+// --- the cat (every Ibiza terrace has one) ------------------------------------
+const cat = new THREE.Group();
+const catMat = new THREE.MeshStandardMaterial({ color: "#0b0710", roughness: 0.9 });
+const catBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.22, 4, 8), catMat);
+catBody.rotation.x = 0.5;
+catBody.position.y = 0.2;
+cat.add(catBody);
+const catHead = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), catMat);
+catHead.position.set(0, 0.46, 0.08);
+cat.add(catHead);
+for (const sx of [-1, 1]) {
+  const ear = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.09, 4), catMat);
+  ear.position.set(sx * 0.06, 0.57, 0.08);
+  cat.add(ear);
+}
+const catTail = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.42, 5), catMat);
+catTail.position.set(0.12, 0.16, -0.16);
+catTail.rotation.z = -0.9;
+cat.add(catTail);
+cat.position.set(11.5, 1.1, 1.6); // on the wall, facing the sea
+terrace.add(cat);
+
+// --- shooting stars: blue hour only, rare ------------------------------------
+const meteor = new THREE.Mesh(
+  new THREE.BoxGeometry(3.2, 0.035, 0.035),
+  new THREE.MeshBasicMaterial({ color: "#dfe4ff", transparent: true, opacity: 0 })
+);
+scene.add(meteor);
+let meteorAt = 45 + Math.random() * 60;
+let meteorT = -1;
+
 // --- boats: sparse silhouettes adrift in the haze ----------------------------
 const boats = [];
 const hullMat = new THREE.MeshBasicMaterial({ color: "#0d0812" });
@@ -409,6 +544,30 @@ addEventListener("pointermove", (e) => {
   lean.y = (e.clientY / innerHeight - 0.5) * 2;
 });
 
+// --- cinematography: a few composed shots, held long, cut clean ---------------
+// ?shot=N locks a shot for art direction.
+const SHOT_SECONDS = 38;
+const SHOTS = [
+  { // wide — the establishing view
+    pos: new THREE.Vector3(0, 4.6, 27), look: new THREE.Vector3(-3, 3.0, -30),
+    drift: 2.2, bob: 0.3 },
+  { // low among the tables — silhouettes against the ember
+    pos: new THREE.Vector3(-11, 2.1, 17), look: new THREE.Vector3(-17, 3.4, -40),
+    drift: 0.9, bob: 0.15 },
+  { // down the rail — profiles over the glitter path
+    pos: new THREE.Vector3(17, 3.1, 5), look: new THREE.Vector3(-40, 2.2, -14),
+    drift: 1.2, bob: 0.2 },
+  { // among the tables — candles, dancers, the booth
+    pos: new THREE.Vector3(7, 3.4, 22), look: new THREE.Vector3(-6, 2.2, -2),
+    drift: 1.5, bob: 0.25 },
+];
+const SHOT_LOCK = parseInt(PARAMS.get("shot"), 10);
+
+console.log(
+  "%c8:47 PM, forever.%c\nYou found the back door. The sun comes down to the water,\nrests a while in the blue hour, and climbs back — but it never sets.\nPull up a chair. — тяoтɪкᴀ",
+  "font-size:14px;color:#ff8a5c", "color:#9a8fa8"
+);
+
 // --- perpetual clock: seconds tick, the minute never arrives ------------------
 const clockEl = document.getElementById("clock");
 setInterval(() => {
@@ -421,6 +580,28 @@ const clock = new THREE.Clock();
 function tick() {
   const t = clock.getElapsedTime();
   energy += (currentEnergy(t) - energy) * 0.02;
+
+  // --- the sun's pendulum: golden -> dusk -> blue hour -> back ---
+  const alt = Number.isFinite(PHASE_LOCK)
+    ? Math.min(1, Math.max(0, PHASE_LOCK))
+    : 0.5 + 0.5 * Math.cos((t / (CYCLE_MINUTES * 60)) * Math.PI * 2);
+  SUN_DIR.set(-0.18, THREE.MathUtils.lerp(-0.075, 0.085, alt), -1).normalize();
+  skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", alt));
+  skyMat.uniforms.uMid.value.copy(paletteAt("mid", alt));
+  skyMat.uniforms.uHigh.value.copy(paletteAt("high", alt));
+  skyMat.uniforms.uZenith.value.copy(paletteAt("zenith", alt));
+  skyMat.uniforms.uSun.value.copy(paletteAt("sun", alt));
+  // ember swells as the sun touches the water, fades in the blue hour
+  skyMat.uniforms.uEmber.value =
+    0.3 + 0.7 * alt + 0.35 * Math.exp(-Math.pow((alt - 0.45) / 0.18, 2));
+  seaMat.uniforms.uShallow.value.copy(paletteAt("seaShallow", alt));
+  seaMat.uniforms.uGlitter.value.copy(paletteAt("glitter", alt));
+  seaMat.uniforms.uDay.value = THREE.MathUtils.smoothstep(alt, 0.3, 0.7);
+  scene.fog.color.copy(paletteAt("fog", alt));
+  sunLight.position.copy(SUN_DIR).multiplyScalar(100);
+  sunLight.intensity = 0.25 + 1.25 * alt;
+  hemi.intensity = 0.35 + 0.25 * alt;
+  starMat.opacity = Math.pow(1 - alt, 2.5) * 0.85;
 
   skyMat.uniforms.uTime.value = t;
   skyMat.uniforms.uEnergy.value = energy;
@@ -446,6 +627,24 @@ function tick() {
   dj.position.y = (Math.sin(da) + Math.sin(da * 1.618)) * 0.02 * MOTION;
   dj.rotation.x = Math.sin(da) * 0.035 * MOTION;
 
+  // the cat: stillness, an occasional slow tail sweep
+  catTail.rotation.z = -0.9 + Math.sin(t * 0.4) * Math.max(0, Math.sin(t * 0.07)) * 0.35 * MOTION;
+
+  // shooting star: only in the blue hour, brief and faint
+  if (meteorT < 0 && t > meteorAt && alt < 0.3) meteorT = t;
+  if (meteorT >= 0) {
+    const k = (t - meteorT) / 1.4;
+    if (k >= 1) {
+      meteorT = -1;
+      meteorAt = t + 50 + Math.random() * 70;
+      meteor.material.opacity = 0;
+    } else {
+      meteor.position.set(-120 + k * 150, 150 - k * 55, -320);
+      meteor.rotation.z = -0.35;
+      meteor.material.opacity = Math.sin(k * Math.PI) * 0.7;
+    }
+  }
+
   for (const b of boats) {
     b.g.position.y = Math.sin(t * 0.5 + b.phase) * 0.09 * MOTION - 0.05;
     b.g.rotation.z = Math.sin(t * 0.4 + b.phase) * 0.03 * MOTION;
@@ -458,11 +657,19 @@ function tick() {
   }
   lampGlow.intensity = 5 + Math.sin(t * 2.0) * 0.8 + energy * 2;
 
-  // slow camera drift — a guest leaning back in their chair
-  camera.position.x = Math.sin(t * 0.05) * 2.2 * MOTION + lean.x * 1.1 * MOTION;
-  camera.position.y = 4.6 + Math.sin(t * 0.085) * 0.3 * MOTION - lean.y * 0.4 * MOTION;
-  camera.position.z = 27;
-  camera.lookAt(-3, 3.0, -30);
+  // cinematography: hold a composed shot with slow drift, cut to the next
+  const shot = SHOTS[
+    Number.isFinite(SHOT_LOCK)
+      ? Math.abs(SHOT_LOCK) % SHOTS.length
+      : Math.floor(t / SHOT_SECONDS) % SHOTS.length
+  ];
+  const st = t * 0.05;
+  camera.position.set(
+    shot.pos.x + Math.sin(st) * shot.drift * MOTION + lean.x * 1.1 * MOTION,
+    shot.pos.y + Math.sin(st * 1.7) * shot.bob * MOTION - lean.y * 0.4 * MOTION,
+    shot.pos.z
+  );
+  camera.lookAt(shot.look);
 
   renderer.render(scene, camera);
   if (!document.hidden) requestAnimationFrame(tick);
