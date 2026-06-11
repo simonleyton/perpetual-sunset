@@ -20,16 +20,16 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
 const CYCLE_MINUTES = 12;
-// staged arrival: every session opens in the high pre-sunset sky, already
-// descending — a couple of unhurried minutes before the sun nears the water
-const CYCLE_OFFSET = (Math.acos(2 * 0.9 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+// staged arrival: every session opens at the top of the arc, the sun high
+// in a Pinto color field, already (barely) descending — the full runway
+const CYCLE_OFFSET = (Math.acos(2 * 0.97 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
 // --- palette keyframes: the cycle moves through these (Pinto registers) ------
 const KEYS = {
-  preset: { // the minutes before sunset: sun still up, gold over dusty blue
-    horizon: "#e08a4a", mid: "#bc7068", high: "#4e4f86", zenith: "#141831",
-    sun: "#ffd9a8", fog: "#54323a", seaShallow: "#3f7a80", glitter: "#f0a45e",
-    seaHaze: "#d9764a",
+  preset: { // the high sun: a coral core hovering in a dusty violet field (Pinto)
+    horizon: "#de8a5a", mid: "#c97b6e", high: "#595a93", zenith: "#1d2244",
+    sun: "#ffdcae", fog: "#54363e", seaShallow: "#3d7e8c", glitter: "#f2a865",
+    seaHaze: "#dd8455",
   },
   golden: {
     horizon: "#cf5a35", mid: "#a04866", high: "#3a2a66", zenith: "#07060f",
@@ -1150,7 +1150,11 @@ function tick() {
   const alt = Number.isFinite(PHASE_LOCK)
     ? Math.min(1, Math.max(0, PHASE_LOCK))
     : 0.5 + 0.5 * Math.cos(((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2);
-  SUN_DIR.set(-0.18, THREE.MathUtils.lerp(-0.075, 0.165, alt), -1).normalize();
+  SUN_DIR.set(
+    -0.18,
+    THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.09 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
+    -1
+  ).normalize();
   skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", alt));
   skyMat.uniforms.uMid.value.copy(paletteAt("mid", alt));
   skyMat.uniforms.uHigh.value.copy(paletteAt("high", alt));
