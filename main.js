@@ -1176,22 +1176,43 @@ iframe.src =
 dock.appendChild(iframe);
 
 let widget = null;
-let pendingPlay = false;
+let widgetReady = false;
 let energy = 0.5; // 0..1, drives crowd + sky + glitter
 let position = 0;
 
-window.addEventListener("load", () => {
-  if (!window.Mixcloud) return;
+function initWidget() {
+  if (widget || !window.Mixcloud) return;
   widget = window.Mixcloud.PlayerWidget(iframe);
-  widget.ready.then(async () => {
-    if (pendingPlay) widget.play();
-    const name = await widget.getCurrentKey?.().catch(() => null);
-    setNowPlaying(name || MIX_FEED);
-    widget.events.progress.on((pos) => { position = pos; });
-    widget.events.play.on(() => setLive(true));
-    widget.events.pause.on(() => setLive(false));
-  });
-});
+  widget.ready
+    .then(async () => {
+      widgetReady = true;
+      const name = await widget.getCurrentKey?.().catch(() => null);
+      setNowPlaying(name || MIX_FEED);
+      widget.events.progress.on((pos) => { position = pos; });
+      widget.events.play.on(() => setLive(true));
+      widget.events.pause.on(() => setLive(false));
+    })
+    .catch(() => {});
+}
+// init as early as the widget script + iframe allow — not on full window load
+iframe.addEventListener("load", initWidget);
+document.addEventListener("DOMContentLoaded", initWidget);
+window.addEventListener("load", initWidget);
+
+// play, robustly: wait for readiness, then retry through transient errors.
+// Never poke a half-initialized player — that is what threw playback errors.
+async function playWhenReady() {
+  for (let i = 0; i < 60 && !widgetReady; i++) await new Promise((r) => setTimeout(r, 250));
+  if (!widget || !widgetReady) return;
+  for (let i = 0; i < 4; i++) {
+    try {
+      await widget.play();
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+}
 
 function setNowPlaying(key) {
   fetch("https://api.mixcloud.com" + (typeof key === "string" ? key : MIX_FEED))
@@ -1232,8 +1253,7 @@ let audioStarted = false;
 function startAudio() {
   if (audioStarted) return;
   audioStarted = true;
-  if (widget) widget.play();
-  else pendingPlay = true;
+  playWhenReady();
   gateEl?.classList.add("open");
   pillEl.hidden = true;
   localStorage.setItem("ps_v", "1");
@@ -1262,6 +1282,8 @@ if (QUIET) {
     e.stopPropagation();
     startAudio();
   });
+  // a click that landed before this module loaded still counts
+  if (window.__wantsAudio) startAudio();
   pillEl.addEventListener("click", startAudio);
   setTimeout(() => {
     if (!audioStarted) {
@@ -1277,7 +1299,7 @@ addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.target.closest("button, a, input")) return;
   e.preventDefault();
   if (!audioStarted) startAudio();
-  else widget?.togglePlay?.();
+  else Promise.resolve(widget?.togglePlay?.()).catch(() => {});
 });
 
 // subtle pointer parallax — lean, don't fly
