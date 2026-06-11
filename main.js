@@ -20,9 +20,9 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
 const CYCLE_MINUTES = 12;
-// staged arrival: every session opens with the sun just above the water,
-// already descending — dusk arrives within the visitor's first minutes
-const CYCLE_OFFSET = (Math.acos(2 * 0.62 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+// staged arrival: every session opens in the high pre-sunset sky, already
+// descending — a couple of unhurried minutes before the sun nears the water
+const CYCLE_OFFSET = (Math.acos(2 * 0.9 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
 // --- palette keyframes: the cycle moves through these (Pinto registers) ------
 const KEYS = {
