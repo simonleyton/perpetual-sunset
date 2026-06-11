@@ -222,30 +222,71 @@ const SIL = {
   lift: { value: new THREE.Color("#0d0712") },
   rimI: { value: 0.3 },
 };
-function silhouetteMat(hex, roughness, extra = {}) {
+function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
   m.onBeforeCompile = (s) => {
     s.uniforms.uRimC = SIL.rim;
     s.uniforms.uCoolC = SIL.cool;
     s.uniforms.uLiftC = SIL.lift;
     s.uniforms.uRimI = SIL.rimI;
+    s.vertexShader = s.vertexShader.replace(
+      "#include <common>",
+      "varying vec3 vSilWorld;\n#include <common>"
+    ).replace(
+      "#include <fog_vertex>",
+      "#include <fog_vertex>\nvSilWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;"
+    );
     s.fragmentShader = s.fragmentShader.replace(
       "#include <common>",
-      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform float uRimI;\n#include <common>"
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform float uRimI;\nvarying vec3 vSilWorld;\n#include <common>"
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
-      // a thin warm sliver along the upward curves, as if lit by the sky
+      // brightness lives camera-side; values sink toward the rail (z ~ 2)
+      float depthFade = smoothstep(2.0, 15.0, vSilWorld.z);
+      // a thin warm sliver along the upward curves — the separator at the rail
       float rimNdV = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 2.6);
       float topness = saturate(geometryNormal.y * 0.8 + 0.2);
       outgoingLight += uRimC * rimNdV * topness * uRimI;
-      // shadow is a different color of light: plum bounce fills the undersides
-      outgoingLight += uCoolC * (0.55 - 0.55 * geometryNormal.y) * 0.05;
-      // lifted black point: air in the shadows
-      outgoingLight = max(outgoingLight, uLiftC);
+      // directional shadow fill: camera-facing sides fall to cool plum, never amber
+      float camFacing = saturate(dot(geometryNormal, geometryViewDir));
+      outgoingLight += uCoolC * (camFacing * 0.07 + (0.5 - 0.5 * geometryNormal.y) * 0.03)
+                     * (0.4 + 0.6 * depthFade);
+      // lifted black point, easing darker toward the rail for the graphic read
+      outgoingLight = max(outgoingLight, uLiftC * (0.45 + 0.55 * depthFade));
+      ${opts.floor ? /* glsl */ `
+      // break the floor plane: plank-width value steps plus fine grain
+      float plank = fract(sin(floor(vSilWorld.x / 1.35) * 12.9898) * 43758.5453);
+      float fgrain = fract(sin(dot(vSilWorld.xz * 7.0, vec2(12.9898, 78.233))) * 43758.5453);
+      outgoingLight *= 0.94 + plank * 0.06 + (fgrain - 0.5) * 0.05;` : ""}
       #include <opaque_fragment>`
     );
   };
+  return m;
+}
+
+// soft contact shadow: seats figures and legs into the deck
+const contactTex = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  grd.addColorStop(0, "rgba(8,4,12,0.55)");
+  grd.addColorStop(1, "rgba(8,4,12,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
+function contactShadow(parent, radius, opacity, x = 0, z = 0) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(radius * 2, radius * 2),
+    new THREE.MeshBasicMaterial({
+      map: contactTex, transparent: true, opacity, depthWrite: false,
+    })
+  );
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.012, z);
+  parent.add(m);
   return m;
 }
 
@@ -253,7 +294,7 @@ function silhouetteMat(hex, roughness, extra = {}) {
 const terrace = new THREE.Group();
 scene.add(terrace);
 
-const deckMat = silhouetteMat("#160d1c", 0.9);
+const deckMat = silhouetteMat("#160d1c", 0.9, {}, { floor: true });
 const deck = new THREE.Mesh(new THREE.BoxGeometry(46, 1.2, 26), deckMat);
 deck.position.set(0, -0.6, 14);
 terrace.add(deck);
@@ -277,6 +318,7 @@ for (const [x, z] of tableSpots) {
   const candle = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), candleMat);
   candle.position.set(x, 1.22, z);
   terrace.add(top, stem, candle);
+  contactShadow(terrace, 1.0, 0.4, x, z);
 }
 
 // two candles actually cast light — small warm pools, the eye's resting points
@@ -305,6 +347,7 @@ function person(x, z, { dancer = false, scale = 1 } = {}) {
   );
   head.position.y = 2.1 * scale;
   g.add(body, head);
+  contactShadow(g, 0.55 * scale, 0.5);
   g.position.set(x, 0, z);
   g.rotation.y = Math.random() * Math.PI * 2;
   terrace.add(g);
@@ -340,6 +383,7 @@ function makeWalker({ tint, scale = 0.8, slim = false }) {
   );
   head.position.y = 2.12 * scale;
   g.add(body, head);
+  contactShadow(g, 0.5 * scale, 0.45);
   terrace.add(g);
   return g;
 }
@@ -423,6 +467,7 @@ djHead.position.y = 2.25;
 dj.add(djBody, djHead);
 dj.position.z = -1.2;
 booth.add(dj);
+contactShadow(booth, 2.4, 0.4);
 booth.position.set(-1.5, 0, 2.8);
 booth.rotation.y = Math.PI; // facing the crowd, back to the sun
 terrace.add(booth);
@@ -491,6 +536,7 @@ function olive(x, z, s = 1) {
     canopy.scale.y = 0.75;
     g.add(canopy);
   }
+  contactShadow(g, 1.1, 0.35);
   g.scale.setScalar(s);
   g.position.set(x, 0, z);
   terrace.add(g);
@@ -511,6 +557,7 @@ function agave(x, z, s = 1) {
     leaf.rotation.set(Math.sin(a) * 0.55, 0, -Math.cos(a) * 0.55);
     g.add(leaf);
   }
+  contactShadow(g, 0.62, 0.4);
   g.scale.setScalar(s);
   g.position.set(x, 0, z);
   terrace.add(g);
@@ -530,6 +577,7 @@ agave(17.5, 2.8, 1.1);
   canopy.position.y = 7.6;
   canopy.scale.y = 0.42;
   g.add(canopy);
+  contactShadow(g, 1.3, 0.3);
   g.position.set(-27, 0, 10);
   terrace.add(g);
 }
@@ -564,6 +612,30 @@ const meteor = new THREE.Mesh(
 scene.add(meteor);
 let meteorAt = 45 + Math.random() * 60;
 let meteorT = -1;
+
+// --- raking light: long soft shadows toward the camera ------------------------
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(2048, 2048);
+sunLight.shadow.camera.left = -34;
+sunLight.shadow.camera.right = 34;
+sunLight.shadow.camera.top = 30;
+sunLight.shadow.camera.bottom = -30;
+sunLight.shadow.camera.near = 20;
+sunLight.shadow.camera.far = 260;
+sunLight.shadow.radius = 7;
+sunLight.shadow.blurSamples = 16;
+sunLight.shadow.bias = -0.0004;
+sunLight.target.position.set(0, 0, 12);
+scene.add(sunLight.target);
+terrace.traverse((o) => {
+  if (o.isMesh && o.material.isMeshStandardMaterial) o.castShadow = true;
+});
+deck.castShadow = false;
+deck.receiveShadow = true;
+wall.receiveShadow = true;
+const _shadowDir = new THREE.Vector3();
 
 // --- boats: sparse silhouettes adrift in the haze ----------------------------
 const boats = [];
@@ -733,12 +805,19 @@ function tick() {
   seaMat.uniforms.uGlitter.value.copy(paletteAt("glitter", alt));
   seaMat.uniforms.uDay.value = THREE.MathUtils.smoothstep(alt, 0.3, 0.7);
   scene.fog.color.copy(paletteAt("fog", alt));
-  sunLight.position.copy(SUN_DIR).multiplyScalar(100);
-  sunLight.intensity = 0.25 + 1.25 * alt;
+  // warm directional key from the sun — low and dead ahead, but the shadow
+  // elevation is floored so the raking shadows stay long without running forever
+  _shadowDir.copy(SUN_DIR);
+  _shadowDir.y = Math.max(_shadowDir.y, 0.24);
+  _shadowDir.normalize();
+  sunLight.position.copy(sunLight.target.position).addScaledVector(_shadowDir, 130);
+  sunLight.intensity = 0.3 + 1.9 * alt;
+  sunLight.color.copy(paletteAt("sun", alt));
   // the café answers the dark: warm lighting breathes up as the sun sinks
   const night = THREE.MathUtils.smoothstep(1 - alt, 0.35, 0.92);
-  hemi.intensity = 0.28 + 0.32 * alt + 0.1 * night;
-  hemi.color.set("#c06a48").lerp(_warmNight, night * 0.6);
+  // ambient is cool now — the warmth lives in the key, not the bath
+  hemi.intensity = 0.2 + 0.24 * alt + 0.1 * night;
+  hemi.color.copy(paletteAt("high", alt)).multiplyScalar(1.5).lerp(_warmNight, night * 0.35);
   starMat.opacity = Math.pow(1 - alt, 2.5) * 0.85;
   skyMat.uniforms.uMoonI.value = Math.pow(night, 2.2) * 0.9;
 
@@ -883,7 +962,7 @@ function tick() {
   SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15);
   SIL.rimI.value = 0.16 + 0.26 * alt;
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
-  danceGlow.intensity = night * (5.5 + energy * 2.5);
+  danceGlow.intensity = night * (3.2 + energy * 1.8);
 
   // cinematography: hold a composed shot with slow drift, cut to the next
   const shot = SHOTS[
