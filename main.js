@@ -200,7 +200,12 @@ function person(x, z, { dancer = false, scale = 1 } = {}) {
   g.position.set(x, 0, z);
   g.rotation.y = Math.random() * Math.PI * 2;
   terrace.add(g);
-  people.push({ g, dancer, phase: Math.random() * Math.PI * 2, baseY: 0 });
+  people.push({
+    g, dancer,
+    phase: Math.random() * Math.PI * 2,
+    freq: 0.75 + Math.random() * 0.5, // nobody moves at the same tempo
+    baseX: x,
+  });
 }
 // seated-ish clusters near tables
 for (const [x, z] of tableSpots) {
@@ -423,13 +428,23 @@ function tick() {
   seaMat.uniforms.uEnergy.value = energy;
 
   for (const p of people) {
-    const amp = (p.dancer ? 0.16 + energy * 0.22 : 0.035) * MOTION;
-    const speed = p.dancer ? 2.1 + energy * 1.6 : 0.9;
-    p.g.position.y = Math.abs(Math.sin(t * speed + p.phase)) * amp;
-    if (p.dancer) p.g.rotation.y += Math.sin(t * 0.8 + p.phase) * 0.004;
+    if (p.dancer) {
+      // groove: two incommensurate sines, squash instead of jump, hips not heels
+      const a = t * (1.1 + energy * 0.9) * p.freq + p.phase;
+      const groove = (Math.sin(a) + Math.sin(a * 1.618 + 1.3)) * 0.5;
+      p.g.position.y = (groove + 1) * 0.04 * (0.4 + energy) * MOTION;
+      p.g.scale.y = 1 - groove * 0.035 * MOTION;
+      p.g.rotation.z = Math.sin(a * 0.5) * 0.045 * MOTION;
+      p.g.position.x = p.baseX + Math.sin(a * 0.25 + p.phase) * 0.12 * MOTION;
+    } else {
+      // standing: breath and slow weight shifts, nothing more
+      p.g.position.y = Math.sin(t * 0.55 * p.freq + p.phase) * 0.012 * MOTION;
+      p.g.rotation.z = Math.sin(t * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
+    }
   }
-  dj.position.y = Math.abs(Math.sin(t * (2.0 + energy))) * 0.08;
-  dj.rotation.x = Math.sin(t * (2.0 + energy)) * 0.05;
+  const da = t * (1.3 + energy * 0.7);
+  dj.position.y = (Math.sin(da) + Math.sin(da * 1.618)) * 0.02 * MOTION;
+  dj.rotation.x = Math.sin(da) * 0.035 * MOTION;
 
   for (const b of boats) {
     b.g.position.y = Math.sin(t * 0.5 + b.phase) * 0.09 * MOTION - 0.05;
