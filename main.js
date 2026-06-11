@@ -5,7 +5,7 @@ import * as THREE from "three";
 // CUE_SHEET: optional precomputed energy timeline [{t: seconds, energy: 0..1}]
 // exported from offline analysis of the mix file; drives crowd + sky breathing.
 // ---------------------------------------------------------------------------
-const MIX_FEED = "/trotika/trotika-deep-summer-mix-2013/";
+const MIX_FEED = "/Yasu_Hiro/joe-claussell-1997-to-2010-works-mix-from-sakurada-tokyo-52/";
 const CUE_SHEET = null;
 
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -590,6 +590,40 @@ agave(17.5, 2.8, 1.1);
   terrace.add(g);
 }
 
+// a leaning palm planted to dress the through-the-fronds shot
+palm(16.5, 17, 7, -0.45);
+
+// --- pergola: pale canvas over the western tables ------------------------------
+{
+  const postMat = silhouetteMat("#241726", 0.85);
+  const canvasMat = silhouetteMat("#9a8a7c", 0.9, { side: THREE.DoubleSide });
+  for (const x of [-19, -5]) {
+    for (const z of [6, 18]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 4.6, 8), postMat);
+      post.position.set(x, 2.3, z);
+      terrace.add(post);
+    }
+  }
+  for (const z of [6, 18]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(15, 0.14, 0.14), postMat);
+    beam.position.set(-12, 4.62, z);
+    terrace.add(beam);
+  }
+  for (let i = 0; i < 3; i++) {
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 11.6, 8, 4), canvasMat);
+    panel.rotation.x = -Math.PI / 2;
+    panel.position.set(-17 + i * 5, 4.5, 12);
+    const pos = panel.geometry.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const nx = pos.getX(v) / 2.1;
+      pos.setZ(v, -(1 - nx * nx) * 0.4); // canvas sag between beams
+    }
+    pos.needsUpdate = true;
+    panel.geometry.computeVertexNormals();
+    terrace.add(panel);
+  }
+}
+
 // --- the cat (every Ibiza terrace has one) ------------------------------------
 const cat = new THREE.Group();
 const catMat = silhouetteMat("#0b0710", 0.9);
@@ -863,6 +897,15 @@ const SHOTS = [
   { // the booth — DJ and dancers against the open sea
     pos: new THREE.Vector3(1.5, 3.3, 11.5), look: new THREE.Vector3(-3.5, 1.9, -28),
     drift: 0.7, bob: 0.12 },
+  { // through the fronds — sun and boats framed by the leaning palm
+    pos: new THREE.Vector3(13.5, 4.0, 20.5), look: new THREE.Vector3(2, 1.6, -40),
+    drift: 0.4, bob: 0.08 },
+  { // elevated wide — over the pergola canvas to the bay
+    pos: new THREE.Vector3(7, 11.5, 39), look: new THREE.Vector3(-4, -0.5, -25),
+    drift: 1.8, bob: 0.2 },
+  { // inside the booth — over the DJ's shoulder, facing the room
+    pos: new THREE.Vector3(-1.5, 3.1, 0.2), look: new THREE.Vector3(-1.5, 1.7, 16),
+    drift: 0.25, bob: 0.05 },
 ];
 const SHOT_LOCK = parseInt(PARAMS.get("shot"), 10);
 
