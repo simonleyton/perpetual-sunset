@@ -24,6 +24,41 @@ const CYCLE_MINUTES = 16;
 // the top of the arc, late-afternoon light, the whole evening ahead
 const CYCLE_OFFSET = (Math.acos(2 * 0.995 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
+// --- the twilight overture -------------------------------------------------------
+// The opening note: a quiet Pinto twilight (references/pinto_twilight.png),
+// held, then dissolved into the cycle. Purely additive — after HOLD + DRIFT
+// the code path is identical to the untouched cycle. Tune by eye here.
+const TWILIGHT = {
+  // gradient stops, top of sky to sea line
+  zenith: "#afc6d2",  // pale cool blue
+  high: "#c5beb3",    // warm pale gray haze
+  mid: "#c99b92",     // dusty rose into muted coral
+  horizon: "#9c7b85", // smoky mauve
+  ember: "#c98a6e",   // the warm swell above the sea line
+  emberI: 0.35,       // ember intensity (day is ~1.0+)
+  sunY: -0.045,       // ember source below the sea line: swell, no disc
+  sea: "#33414b",     // deep slate base
+  glitter: "#b59a93",
+  fog: "#565360",
+  key: "#c9a099",     // sun key during twilight: soft dusty rose
+  ambient: "#aebfca", // hemisphere: pale blue-gray, cool and low contrast
+  rim: "#c9a099",     // figure rim during twilight
+  cool: "#5a6a78",    // figure shadow fill during twilight
+  saturation: 1.0,    // global multiplier on all stops above
+  HOLD: 20,           // seconds of pure twilight
+  DRIFT: 35,          // seconds of dissolve into the existing cycle
+};
+const TWI = {};
+{
+  const hsl = { h: 0, s: 0, l: 0 };
+  for (const k of ["zenith", "high", "mid", "horizon", "ember", "sea", "glitter", "fog", "key", "ambient", "rim", "cool"]) {
+    const c = new THREE.Color(TWILIGHT[k]);
+    c.getHSL(hsl);
+    c.setHSL(hsl.h, hsl.s * TWILIGHT.saturation, hsl.l);
+    TWI[k] = c;
+  }
+}
+
 // --- palette keyframes: the cycle moves through these (Pinto registers) ------
 const KEYS = {
   afternoon: { // late afternoon, 1.5h to sundown: pastel azure-gold (Pinto pano)
@@ -1736,6 +1771,33 @@ function tick() {
   SIL.sunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
   danceGlow.intensity = night * (3.2 + energy * 1.8);
+
+  // the twilight overture: hold the opening note, then dissolve into the day
+  if (!Number.isFinite(PHASE_LOCK)) {
+    const introW = 1 - THREE.MathUtils.smoothstep(t, TWILIGHT.HOLD, TWILIGHT.HOLD + TWILIGHT.DRIFT);
+    if (introW > 0) {
+      skyMat.uniforms.uZenith.value.lerp(TWI.zenith, introW);
+      skyMat.uniforms.uHigh.value.lerp(TWI.high, introW);
+      skyMat.uniforms.uMid.value.lerp(TWI.mid, introW);
+      skyMat.uniforms.uHorizon.value.lerp(TWI.horizon, introW);
+      skyMat.uniforms.uSun.value.lerp(TWI.ember, introW);
+      skyMat.uniforms.uEmber.value = THREE.MathUtils.lerp(skyMat.uniforms.uEmber.value, TWILIGHT.emberI, introW);
+      SUN_DIR.y = THREE.MathUtils.lerp(SUN_DIR.y, TWILIGHT.sunY, introW);
+      SUN_DIR.normalize();
+      seaMat.uniforms.uShallow.value.lerp(TWI.sea, introW);
+      seaMat.uniforms.uGlitter.value.lerp(TWI.glitter, introW);
+      seaMat.uniforms.uDay.value = THREE.MathUtils.lerp(seaMat.uniforms.uDay.value, 0.65, introW);
+      scene.fog.color.lerp(TWI.fog, introW);
+      sunLight.intensity = THREE.MathUtils.lerp(sunLight.intensity, 0.5, introW);
+      sunLight.color.lerp(TWI.key, introW);
+      hemi.intensity = THREE.MathUtils.lerp(hemi.intensity, 0.55, introW);
+      hemi.color.lerp(TWI.ambient, introW);
+      SIL.rim.value.lerp(TWI.rim, introW);
+      SIL.rimI.value = THREE.MathUtils.lerp(SIL.rimI.value, 0.18, introW);
+      SIL.cool.value.lerp(TWI.cool, introW);
+      SIL.peak.value *= 1 - introW; // no hot peak carve against a quiet sky
+    }
+  }
 
   // cinematography: hold a composed shot with slow drift, cut to the next
   const shot = SHOTS[
