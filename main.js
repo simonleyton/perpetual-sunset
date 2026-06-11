@@ -8,6 +8,9 @@ import * as THREE from "three";
 const MIX_FEED = "/trotika/trotika-deep-summer-mix-2013/";
 const CUE_SHEET = null;
 
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MOTION = REDUCED_MOTION ? 0.15 : 1;
+
 // --- palette: Miami-sky golden hour, never resolving --------------------
 const SKY = {
   horizon: new THREE.Color("#ff9d6b"),
@@ -303,6 +306,7 @@ function setNowPlaying(key) {
     .then((c) => {
       document.getElementById("np-text").textContent =
         `${c.name} — ${c.user?.name ?? "resident DJ"}`;
+      if (c.url) document.getElementById("now-playing").href = c.url;
     })
     .catch(() => {});
 }
@@ -328,6 +332,20 @@ document.getElementById("enter").addEventListener("click", () => {
   widget?.play?.();
 });
 
+// space bar = play/pause, anywhere on the page
+addEventListener("keydown", (e) => {
+  if (e.code !== "Space" || e.target.closest("button, a, input")) return;
+  e.preventDefault();
+  widget?.togglePlay?.();
+});
+
+// subtle pointer parallax — lean, don't fly
+const lean = { x: 0, y: 0 };
+addEventListener("pointermove", (e) => {
+  lean.x = (e.clientX / innerWidth - 0.5) * 2;
+  lean.y = (e.clientY / innerHeight - 0.5) * 2;
+});
+
 // --- perpetual clock: seconds tick, the minute never arrives ------------------
 const clockEl = document.getElementById("clock");
 setInterval(() => {
@@ -347,7 +365,7 @@ function tick() {
   seaMat.uniforms.uEnergy.value = energy;
 
   for (const p of people) {
-    const amp = p.dancer ? 0.16 + energy * 0.22 : 0.035;
+    const amp = (p.dancer ? 0.16 + energy * 0.22 : 0.035) * MOTION;
     const speed = p.dancer ? 2.1 + energy * 1.6 : 0.9;
     p.g.position.y = Math.abs(Math.sin(t * speed + p.phase)) * amp;
     if (p.dancer) p.g.rotation.y += Math.sin(t * 0.8 + p.phase) * 0.004;
@@ -362,14 +380,17 @@ function tick() {
   lampGlow.intensity = 12 + Math.sin(t * 2.0) * 1.5 + energy * 5;
 
   // slow camera drift — a guest leaning back in their chair
-  camera.position.x = Math.sin(t * 0.05) * 2.2;
-  camera.position.y = 4.6 + Math.sin(t * 0.085) * 0.3;
+  camera.position.x = Math.sin(t * 0.05) * 2.2 * MOTION + lean.x * 1.1 * MOTION;
+  camera.position.y = 4.6 + Math.sin(t * 0.085) * 0.3 * MOTION - lean.y * 0.4 * MOTION;
   camera.position.z = 27;
   camera.lookAt(-3, 3.0, -30);
 
   renderer.render(scene, camera);
-  requestAnimationFrame(tick);
+  if (!document.hidden) requestAnimationFrame(tick);
 }
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { clock.getDelta(); requestAnimationFrame(tick); }
+});
 tick();
 
 addEventListener("resize", () => {
