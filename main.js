@@ -417,19 +417,27 @@ for (let i = 0; i < 3; i++) {
   walkers.push(w);
 }
 
-// the flaneur: the one you live vicariously through. Slowest walk on the
-// terrace, a shade lighter than everyone, comes to the rail just to watch.
-const flaneur = {
-  kind: "flaneur",
-  g: makeWalker({ tint: "#7d6a59", scale: 0.96, slim: true }),
-  state: "away", stateUntil: 12,
-  from: new THREE.Vector3(), to: new THREE.Vector3(),
-  t0: 0, dur: 1, speed: 0.72,
-  phase: Math.random() * Math.PI * 2,
-  legs: [],
-};
-flaneur.g.visible = false;
-walkers.push(flaneur);
+// the flaneurs: the ones you live vicariously through. Slowest walks on the
+// terrace, a shade lighter than everyone, they come to the rail just to watch.
+// Staggered so the rail occasionally gets quiet company.
+const FLANEURS = [
+  { tint: "#7d6a59", scale: 0.96, speed: 0.72, first: 12 },
+  { tint: "#6c6072", scale: 0.92, speed: 0.66, first: 75 },
+  { tint: "#84705f", scale: 0.99, speed: 0.78, first: 150 },
+];
+for (const f of FLANEURS) {
+  const w = {
+    kind: "flaneur",
+    g: makeWalker({ tint: f.tint, scale: f.scale, slim: true }),
+    state: "away", stateUntil: f.first + Math.random() * 15,
+    from: new THREE.Vector3(), to: new THREE.Vector3(),
+    t0: 0, dur: 1, speed: f.speed,
+    phase: Math.random() * Math.PI * 2,
+    legs: [],
+  };
+  w.g.visible = false;
+  walkers.push(w);
+}
 
 function walkerSetWalk(w, t, from, to) {
   w.from.copy(from);
@@ -612,6 +620,56 @@ const meteor = new THREE.Mesh(
 scene.add(meteor);
 let meteorAt = 45 + Math.random() * 60;
 let meteorT = -1;
+
+// --- aircraft: distant coastal texture, never the subject ----------------------
+const plane = new THREE.Group();
+{
+  const mat = new THREE.MeshBasicMaterial({ color: "#181222", fog: false });
+  const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 3.2, 4, 8), mat);
+  fuselage.rotation.z = Math.PI / 2;
+  const wings = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.07, 5.2), mat);
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.95, 0.07), mat);
+  tail.position.set(-1.65, 0.42, 0);
+  const strobe = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 6, 6),
+    new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, fog: false })
+  );
+  strobe.position.y = -0.3;
+  plane.add(fuselage, wings, tail, strobe);
+  plane.userData.strobe = strobe;
+  plane.scale.setScalar(4);
+  plane.visible = false;
+  scene.add(plane);
+}
+let planeAt = 35, planeT = -1, planeDir = 1;
+const PLANE_SECONDS = 55;
+
+const heli = new THREE.Group();
+{
+  const mat = new THREE.MeshBasicMaterial({ color: "#161020", fog: false });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.4, 4, 8), mat);
+  body.rotation.z = Math.PI / 2;
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.15, 0.15), mat);
+  boom.position.x = -1.9;
+  const rotor = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.9, 1.9, 0.03, 16),
+    new THREE.MeshBasicMaterial({ color: "#100a16", transparent: true, opacity: 0.35, fog: false })
+  );
+  rotor.position.y = 0.62;
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 6, 6),
+    new THREE.MeshBasicMaterial({ color: "#ff4d3d", transparent: true, opacity: 0, fog: false })
+  );
+  beacon.position.y = -0.45;
+  heli.add(body, boom, rotor, beacon);
+  heli.userData.rotor = rotor;
+  heli.userData.beacon = beacon;
+  heli.scale.setScalar(1.8);
+  heli.visible = false;
+  scene.add(heli);
+}
+let heliAt = 95, heliT = -1, heliDir = 1;
+const HELI_SECONDS = 24;
 
 // --- raking light: long soft shadows toward the camera ------------------------
 renderer.shadowMap.enabled = true;
@@ -941,6 +999,46 @@ function tick() {
       meteor.position.set(-120 + k * 150, 150 - k * 55, -320);
       meteor.rotation.z = -0.35;
       meteor.material.opacity = Math.sin(k * Math.PI) * 0.7;
+    }
+  }
+
+  // the airliner: high, slow, a long quiet diagonal
+  if (planeT < 0 && t > planeAt) {
+    planeT = t;
+    planeDir = Math.random() < 0.5 ? 1 : -1;
+    plane.rotation.y = planeDir > 0 ? 0 : Math.PI;
+    plane.visible = true;
+  }
+  if (planeT >= 0) {
+    const k = (t - planeT) / PLANE_SECONDS;
+    if (k >= 1) {
+      planeT = -1;
+      planeAt = t + 140 + Math.random() * 130;
+      plane.visible = false;
+    } else {
+      plane.position.set(planeDir * (k * 560 - 280), 33 + Math.sin(k * Math.PI) * 2, -195);
+      plane.userData.strobe.material.opacity = Math.sin(t * 9) > 0.72 ? 0.9 : 0.08;
+    }
+  }
+
+  // the helicopter: lower, quicker, hugging the coast
+  if (heliT < 0 && t > heliAt) {
+    heliT = t;
+    heliDir = Math.random() < 0.5 ? 1 : -1;
+    heli.rotation.y = heliDir > 0 ? 0 : Math.PI;
+    heli.rotation.z = -0.06;
+    heli.visible = true;
+  }
+  if (heliT >= 0) {
+    const k = (t - heliT) / HELI_SECONDS;
+    if (k >= 1) {
+      heliT = -1;
+      heliAt = t + 200 + Math.random() * 180;
+      heli.visible = false;
+    } else {
+      heli.position.set(heliDir * (k * 440 - 220), 17 + Math.sin(t * 1.3) * 0.5, -115);
+      heli.userData.rotor.rotation.y += 0.9;
+      heli.userData.beacon.material.opacity = Math.sin(t * 6) > 0.4 ? 0.85 : 0.1;
     }
   }
 
