@@ -97,6 +97,7 @@ const _emberRim = new THREE.Color("#e08a50");
 const _moonCool = new THREE.Color("#4a4f7a");
 const _hotOrange = new THREE.Color("#ff8e3f");
 const _paleMauve = new THREE.Color("#b9b4cc");
+const _plumEdge = new THREE.Color("#8578a4");
 function paletteAt(key, alt) {
   if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
   if (alt < 0.8) return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.35);
@@ -291,6 +292,8 @@ const SIL = {
   sunV: { value: new THREE.Vector3(0, 0.2, -1) },
   duskRim: { value: 0 },
   duskRimC: { value: new THREE.Color("#9a93b2") },
+  canopy: { value: 0 },
+  canopyC: { value: new THREE.Color("#6a5f8a") },
 };
 function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
@@ -304,6 +307,8 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     s.uniforms.uSunV = SIL.sunV;
     s.uniforms.uDuskRim = SIL.duskRim;
     s.uniforms.uDuskRimC = SIL.duskRimC;
+    s.uniforms.uCanopy = SIL.canopy;
+    s.uniforms.uCanopyC = SIL.canopyC;
     s.vertexShader = s.vertexShader.replace(
       "#include <common>",
       "varying vec3 vSilWorld;\n#include <common>"
@@ -313,7 +318,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     );
     s.fragmentShader = s.fragmentShader.replace(
       "#include <common>",
-      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC;\nvarying vec3 vSilWorld;\n#include <common>"
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC; uniform float uCanopy; uniform vec3 uCanopyC;\nvarying vec3 vSilWorld;\n#include <common>"
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
@@ -332,6 +337,12 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       // outline, not light. Interiors stay exactly as dark as they are.
       float duskEdge = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 6.0);
       outgoingLight += uDuskRimC * duskEdge * uDuskRim;`}
+      ${opts.canopy ? /* glsl */ `
+      // deep night: a whisper of sky plum on the underside edges and folds —
+      // describing the tensioned shape, never lighting it
+      float underEdge = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 3.5)
+                      * saturate(-geometryNormal.y);
+      outgoingLight += uCanopyC * underEdge * uCanopy;` : ""}
       // directional shadow fill: camera-facing sides fall to cool plum, never amber
       float camFacing = saturate(dot(geometryNormal, geometryViewDir));
       outgoingLight += uCoolC * (camFacing * 0.07 * (1.0 + 0.85 * uPeak) + (0.5 - 0.5 * geometryNormal.y) * 0.03)
@@ -828,7 +839,7 @@ palm(16.5, 17, 7, -0.45);
 const pergolaPanels = [];
 {
   const postMat = silhouetteMat("#241726", 0.85);
-  const canvasMat = silhouetteMat("#9a8a7c", 0.9, { side: THREE.DoubleSide });
+  const canvasMat = silhouetteMat("#9a8a7c", 0.9, { side: THREE.DoubleSide }, { canopy: true });
   for (const x of [-19, -5]) {
     for (const z of [6, 18]) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 4.6, 8), postMat);
@@ -1781,6 +1792,9 @@ function tick() {
   const duskW = THREE.MathUtils.smoothstep(alt, 0.25, 0.4) * (1 - THREE.MathUtils.smoothstep(alt, 0.55, 0.68));
   SIL.duskRim.value = 0.1 * duskW; // hard ceiling 0.15 — held under it
   SIL.duskRimC.value.copy(paletteAt("high", alt)).lerp(_paleMauve, 0.55);
+  // canopy underside edge: deep-night only, capped 0.12 — held under it
+  SIL.canopy.value = 0.08 * deepNight;
+  SIL.canopyC.value.copy(paletteAt("high", alt)).lerp(_plumEdge, 0.4);
   SIL.hot.value.copy(paletteAt("sun", alt)).lerp(_hotOrange, 0.45);
   SIL.sunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
