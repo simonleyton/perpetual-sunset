@@ -96,6 +96,7 @@ const _warmNight = new THREE.Color("#e8924e");
 const _emberRim = new THREE.Color("#e08a50");
 const _moonCool = new THREE.Color("#4a4f7a");
 const _hotOrange = new THREE.Color("#ff8e3f");
+const _paleMauve = new THREE.Color("#b9b4cc");
 function paletteAt(key, alt) {
   if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
   if (alt < 0.8) return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.35);
@@ -288,6 +289,8 @@ const SIL = {
   hot: { value: new THREE.Color("#ff8e3f") },
   peak: { value: 0 },
   sunV: { value: new THREE.Vector3(0, 0.2, -1) },
+  duskRim: { value: 0 },
+  duskRimC: { value: new THREE.Color("#9a93b2") },
 };
 function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
@@ -299,6 +302,8 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     s.uniforms.uHotC = SIL.hot;
     s.uniforms.uPeak = SIL.peak;
     s.uniforms.uSunV = SIL.sunV;
+    s.uniforms.uDuskRim = SIL.duskRim;
+    s.uniforms.uDuskRimC = SIL.duskRimC;
     s.vertexShader = s.vertexShader.replace(
       "#include <common>",
       "varying vec3 vSilWorld;\n#include <common>"
@@ -308,7 +313,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     );
     s.fragmentShader = s.fragmentShader.replace(
       "#include <common>",
-      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak;\nvarying vec3 vSilWorld;\n#include <common>"
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC;\nvarying vec3 vSilWorld;\n#include <common>"
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
@@ -322,6 +327,11 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       float hotWrap = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 1.8)
                     * saturate(dot(geometryNormal, uSunV));
       outgoingLight += uHotC * hotWrap * 0.85 * uPeak${opts.floor || opts.flat ? " * 0.12" : ""};
+      ${opts.floor || opts.flat ? "" : /* glsl */ `
+      // dusk edge separation: a thin cool sliver on the silhouette boundary only —
+      // outline, not light. Interiors stay exactly as dark as they are.
+      float duskEdge = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 6.0);
+      outgoingLight += uDuskRimC * duskEdge * uDuskRim;`}
       // directional shadow fill: camera-facing sides fall to cool plum, never amber
       float camFacing = saturate(dot(geometryNormal, geometryViewDir));
       outgoingLight += uCoolC * (camFacing * 0.07 * (1.0 + 0.85 * uPeak) + (0.5 - 0.5 * geometryNormal.y) * 0.03)
@@ -1767,6 +1777,10 @@ function tick() {
   SIL.rimI.value = 0.16 + 0.26 * alt + 0.18 * deepNight;
   // peak-sun figure carve: hot sun-side rim + boosted cool fill, gated to the peak
   SIL.peak.value = THREE.MathUtils.smoothstep(alt, 0.82, 0.95);
+  // dusk-only figure outline: cool mauve from the residual sky, capped low
+  const duskW = THREE.MathUtils.smoothstep(alt, 0.25, 0.4) * (1 - THREE.MathUtils.smoothstep(alt, 0.55, 0.68));
+  SIL.duskRim.value = 0.1 * duskW; // hard ceiling 0.15 — held under it
+  SIL.duskRimC.value.copy(paletteAt("high", alt)).lerp(_paleMauve, 0.55);
   SIL.hot.value.copy(paletteAt("sun", alt)).lerp(_hotOrange, 0.45);
   SIL.sunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
