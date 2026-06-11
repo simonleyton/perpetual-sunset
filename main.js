@@ -401,10 +401,12 @@ function buildPeg({
       cup.rotation.x = Math.PI;
       cup.position.set(bodyR + 0.13 * s, 0.99 * s, 0);
       g.add(stem, cup);
+      g.userData.drink = [stem, cup];
     } else if (accessory === "cup") {
       const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.065 * s, 0.06 * s, 0.22 * s, 10), aMat);
       cup.position.set(bodyR + 0.12 * s, 0.92 * s, 0);
       g.add(cup);
+      g.userData.drink = [cup];
     } else if (accessory === "bag") {
       const bag = new THREE.Mesh(new THREE.SphereGeometry(0.2 * s, 10, 8), aMat);
       bag.scale.set(1, 0.72, 0.55);
@@ -433,36 +435,42 @@ const CAST = [
   { x: -1.3, z: 5.3, dancer: true, scale: 0.86, lean: -0.025, accent: { zone: "head", color: A.terracotta } },
   { x: 0.3, z: 4.2, dancer: true, scale: 0.78, lean: 0.045 },
   { x: 1.5, z: 5.0, dancer: true, scale: 0.82, lean: -0.04, accessory: "cup" },
-  // the pair at the rail, tilted toward each other
-  { x: -10.2, z: 3.1, scale: 0.86, lean: 0.045, yRot: Math.PI - 0.35, accessory: "glass" },
-  { x: -11.4, z: 3.2, scale: 0.82, lean: -0.05, yRot: Math.PI + 0.4 },
+  // the pair at the rail, tilted toward each other, deep in it
+  { x: -10.2, z: 3.1, scale: 0.86, lean: 0.045, yRot: Math.PI - 0.35, accessory: "glass", converse: 0 },
+  { x: -11.4, z: 3.2, scale: 0.82, lean: -0.05, yRot: Math.PI + 0.4, converse: 2.2 },
   // solitary under a floppy hat, right rail, space around them
   { x: 18.6, z: 3.1, scale: 0.82, lean: 0.02, accessory: "hatFloppy" },
   // tables, unevenly held
   { x: -12.4, z: 8.4, scale: 0.82, lean: 0.03, accessory: "hatFlat" },
-  { x: -6.4, z: 12.4, scale: 0.86, lean: -0.02 },
-  { x: -9.3, z: 11.6, scale: 0.82, lean: 0.035, accent: { zone: "band", color: A.teal } },
+  { x: -6.4, z: 12.4, scale: 0.86, lean: -0.02, converse: 1.3 },
+  { x: -9.3, z: 11.6, scale: 0.82, lean: 0.035, accent: { zone: "band", color: A.teal }, converse: 3.5 },
   // the reader: the only one turned away from the sunset
   { x: -13.4, z: 16.6, scale: 0.78, lean: 0.025, nose: true, accessory: "book", yRot: 0.15 },
   { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03 },
-  { x: 6.6, z: 9.0, scale: 0.82, lean: 0.02 },
   // the child, midground
   { x: 7.4, z: 10.4, scale: 0.5, lean: 0.04 },
   // solitary near the camera, bag slung, alone on purpose
   { x: -1.8, z: 18.4, scale: 0.82, lean: -0.045, nose: true, accessory: "bag" },
 ];
 const people = [];
+const lifters = []; // figures who occasionally raise their drink to the light
 for (const c of CAST) {
   const g = buildPeg(c);
   g.position.set(c.x, 0, c.z);
   g.rotation.y = c.yRot ?? Math.PI + (Math.random() - 0.5) * 0.6; // most face the sun
   terrace.add(g);
   people.push({
-    g, dancer: !!c.dancer, lean: c.lean ?? 0,
+    g, dancer: !!c.dancer, lean: c.lean ?? 0, converse: c.converse,
     phase: Math.random() * Math.PI * 2,
     freq: 0.75 + Math.random() * 0.5, // nobody moves at the same tempo
     baseX: c.x,
   });
+  if ((c.accessory === "glass" || c.accessory === "cup") && g.userData.drink) {
+    lifters.push({
+      meshes: g.userData.drink.map((m) => ({ m, by: m.position.y })),
+      state: 0, t0: 0, next: 30 + Math.random() * 80,
+    });
+  }
 }
 
 // --- walkers: waiters and passersby, never in a hurry -------------------------
@@ -524,6 +532,29 @@ for (const f of FLANEURS) {
   walkers.push(w);
 }
 
+// the guest seat: its occupant eventually wanders out; a stranger drifts in.
+// The scene never resolves — the chair is never empty for long.
+const GUEST_SEAT = new THREE.Vector3(6.6, 0, 9.0);
+function spawnGuestPeg() {
+  return makeWalker({
+    scale: [0.78, 0.82, 0.86][Math.floor(Math.random() * 3)],
+    slim: Math.random() < 0.4,
+    accessory: [null, null, null, "cup", "glass", "hatFloppy"][Math.floor(Math.random() * 6)],
+  });
+}
+const guest = {
+  kind: "guest",
+  g: spawnGuestPeg(),
+  state: "seated", stateUntil: 160 + Math.random() * 200,
+  from: new THREE.Vector3(), to: new THREE.Vector3(),
+  t0: 0, dur: 1, speed: 0.8,
+  phase: Math.random() * Math.PI * 2,
+  legs: [],
+};
+guest.g.position.copy(GUEST_SEAT);
+guest.g.rotation.y = Math.PI + 0.2;
+walkers.push(guest);
+
 function walkerSetWalk(w, t, from, to) {
   w.from.copy(from);
   w.to.copy(to);
@@ -578,7 +609,7 @@ function stringLights(x1, x2, z, y, sag, n = 14) {
       z
     );
     terrace.add(bulb);
-    bulbs.push({ m: bulb, phase: i * 0.7 });
+    bulbs.push({ m: bulb, phase: i * 0.7, bx: bulb.position.x, by: bulb.position.y });
   }
 }
 stringLights(-20, 20, 3.2, 6.2, 1.1);
@@ -594,6 +625,7 @@ for (const [x, z] of [[-20, 3.2], [20, 3.2], [-18, 11], [18, 11], [-16, 19], [16
 }
 
 // --- palms (silhouettes at the edges) ----------------------------------------
+const palms = [];
 function palm(x, z, h = 9, lean = 0.12) {
   const g = new THREE.Group();
   const trunkMat = silhouetteMat("#0e0813", 0.9);
@@ -611,6 +643,7 @@ function palm(x, z, h = 9, lean = 0.12) {
   }
   g.position.set(x, 0, z);
   terrace.add(g);
+  palms.push({ g, phase: x * 0.7 });
 }
 palm(-24, 5, 10, 0.16);
 palm(25, 11, 8.5, -0.1);
@@ -679,6 +712,7 @@ agave(17.5, 2.8, 1.1);
 palm(16.5, 17, 7, -0.45);
 
 // --- pergola: pale canvas over the western tables ------------------------------
+const pergolaPanels = [];
 {
   const postMat = silhouetteMat("#241726", 0.85);
   const canvasMat = silhouetteMat("#9a8a7c", 0.9, { side: THREE.DoubleSide });
@@ -706,6 +740,7 @@ palm(16.5, 17, 7, -0.45);
     pos.needsUpdate = true;
     panel.geometry.computeVertexNormals();
     terrace.add(panel);
+    pergolaPanels.push({ panel, phase: i * 1.3 });
   }
 }
 
@@ -1014,6 +1049,8 @@ setInterval(() => {
 }, 1000);
 
 // --- loop ---------------------------------------------------------------------
+const wind = { x: 0.6, target: 0.6, nextShift: 40 };
+
 const clock = new THREE.Clock();
 function tick() {
   const t = clock.getElapsedTime();
@@ -1070,8 +1107,28 @@ function tick() {
       p.g.position.x = p.baseX + Math.sin(a * 0.25 + p.phase) * 0.12 * MOTION;
     } else {
       // standing: breath and slow weight shifts around the hand-placed lean
+      let lean = p.lean;
+      if (p.converse !== undefined) {
+        // leaning in to listen, easing back to speak — on a long offset
+        lean *= 1 + 0.5 * Math.max(0, Math.sin(t * 0.045 + p.converse)) * MOTION;
+      }
       p.g.position.y = Math.sin(ts * 0.55 * p.freq + p.phase) * 0.012 * MOTION;
-      p.g.rotation.z = p.lean + Math.sin(ts * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
+      p.g.rotation.z = lean + Math.sin(ts * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
+    }
+  }
+
+  // a glass rises into the rim light, holds, and settles back
+  for (const L of lifters) {
+    if (L.state === 0 && t > L.next) { L.state = 1; L.t0 = t; }
+    if (L.state === 1) {
+      const k = (t - L.t0) / 9;
+      let lift;
+      if (k < 0.33) lift = k / 0.33;
+      else if (k < 0.55) lift = 1;
+      else if (k < 1) lift = 1 - (k - 0.55) / 0.45;
+      else { L.state = 0; L.next = t + 55 + Math.random() * 110; lift = 0; }
+      const e = lift * lift * (3 - 2 * lift);
+      for (const d of L.meshes) d.m.position.y = d.by + e * 0.15 * MOTION;
     }
   }
   // walkers: ease in and out of every journey, gait as a quiet two-beat
@@ -1101,6 +1158,18 @@ function tick() {
             w.state = "away";
             w.stateUntil = t + 70 + Math.random() * 70;
           }
+        } else if (w.kind === "guest") {
+          if (w.g.position.z < 10) {
+            w.state = "seated"; // took the chair
+            w.stateUntil = t + 160 + Math.random() * 220;
+            w.g.rotation.y = Math.PI + (Math.random() - 0.5) * 0.4;
+          } else {
+            terrace.remove(w.g); // gone; someone new will come
+            w.g = spawnGuestPeg();
+            w.g.visible = false;
+            w.state = "away";
+            w.stateUntil = t + 50 + Math.random() * 100;
+          }
         } else {
           const atHome = w.to.distanceTo(w.home) < 0.5;
           w.state = atHome ? "post" : "dwell";
@@ -1119,6 +1188,15 @@ function tick() {
             walkerSetWalk(w, t, w.g.position, new THREE.Vector3(tx + 1.9, 0, tz + 0.6));
           } else {
             walkerSetWalk(w, t, w.g.position, w.home);
+          }
+        } else if (w.kind === "guest") {
+          if (w.state === "seated") {
+            w.legs = [new THREE.Vector3(24, 0, PROMENADE_Z)];
+            walkerSetWalk(w, t, w.g.position, new THREE.Vector3(6.6, 0, PROMENADE_Z));
+          } else {
+            w.g.visible = true;
+            w.legs = [GUEST_SEAT.clone()];
+            walkerSetWalk(w, t, new THREE.Vector3(24, 0, PROMENADE_Z), new THREE.Vector3(6.6, 0, PROMENADE_Z));
           }
         } else if (w.kind === "flaneur") {
           if (w.state === "gaze") {
@@ -1324,10 +1402,23 @@ function tick() {
     b.g.position.x += b.drift * MOTION;
   }
 
+  // the breeze: one wind for the whole terrace, wandering, sometimes near-still
+  if (t > wind.nextShift) {
+    wind.target = (0.2 + Math.random() * 1.0) * (Math.random() < 0.5 ? 1 : -1);
+    wind.nextShift = t + 60 + Math.random() * 120;
+  }
+  wind.x += (wind.target - wind.x) * 0.0015; // the shift takes about a minute
+
   for (const b of bulbs) {
     const k = (0.75 + 0.25 * Math.sin(t * 2.4 + b.phase)) * (0.55 + 0.65 * night);
     b.m.material.color.setRGB(0.88 * k, 0.44 * k, 0.16 * k);
+    b.m.position.x = b.bx + Math.sin(ts * 0.8 + b.phase) * 0.07 * wind.x * MOTION;
+    b.m.position.y = b.by + Math.sin(ts * 1.1 + b.phase) * 0.02 * Math.abs(wind.x) * MOTION;
   }
+  for (const p of palms)
+    p.g.rotation.z = Math.sin(ts * 0.4 + p.phase) * 0.015 * wind.x * MOTION;
+  for (const pp of pergolaPanels)
+    pp.panel.rotation.z = Math.sin(ts * 0.6 + pp.phase) * 0.01 * wind.x * MOTION;
   candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(0.72 + 0.45 * night);
   for (const pr of practicals)
     pr.p.intensity = (0.8 + 0.6 * night) + Math.sin(t * 1.7 + pr.phase) * 0.1;
