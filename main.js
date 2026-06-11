@@ -259,6 +259,10 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       float plank = fract(sin(floor(vSilWorld.x / 1.35) * 12.9898) * 43758.5453);
       float fgrain = fract(sin(dot(vSilWorld.xz * 7.0, vec2(12.9898, 78.233))) * 43758.5453);
       outgoingLight *= 0.94 + plank * 0.06 + (fgrain - 0.5) * 0.05;` : ""}
+      ${opts.grain ? /* glsl */ `
+      // handmade: faint material grain, only legible up close
+      float pg = fract(sin(dot(vSilWorld.xy * 42.0 + vSilWorld.z * 17.0, vec2(12.9898, 78.233))) * 43758.5453);
+      outgoingLight *= 0.985 + pg * 0.03;` : ""}
       #include <opaque_fragment>`
     );
   };
@@ -330,60 +334,141 @@ for (const [x, z] of [[-3, 18], [8, 9]]) {
   practicals.push({ p, phase: x });
 }
 
-// --- people: soft capsule patrons -----------------------------------------
-const PALETTE = ["#2e1822", "#241526", "#39201d", "#2a1a30", "#1f1826", "#34202a"];
-const people = [];
-function person(x, z, { dancer = false, scale = 1 } = {}) {
+// --- the peg: one canonical handmade figure ------------------------------------
+// Johnny Kelly rules: capsule peg, head ~0.85 the body width, squat, no neck,
+// no limbs, no face. Matte like turned wood. All variation lives in the
+// config: lean, accent, accessory, scale — tune the CAST array below.
+const PEG = {
+  tones: ["#33211f", "#2c1a22", "#3a241c", "#2e1d29", "#2b1a1e", "#36221f"],
+  head: "#241317",
+  accents: {
+    terracotta: "#b35c3a", teal: "#5f8378", ochre: "#c2913f",
+    rose: "#b97f86", putty: "#a89a88",
+  },
+};
+function pegMat(hex) {
+  return silhouetteMat(hex, 0.96, {}, { grain: true });
+}
+function buildPeg({
+  scale = 0.82, tone, slim = false, lean = 0,
+  accent = null, accessory = null, nose = false,
+} = {}) {
+  const s = scale;
   const g = new THREE.Group();
-  const tone = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.42 * scale, 1.15 * scale, 6, 14),
-    silhouetteMat(tone, 0.65)
-  );
-  body.position.y = 1.05 * scale;
+  const bodyR = (slim ? 0.4 : 0.45) * s;
+  const headR = bodyR * 0.85; // head ~0.85 the body width
+  const bodyTone = tone ?? PEG.tones[Math.floor(Math.random() * PEG.tones.length)];
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(bodyR, 0.55 * s, 6, 14), pegMat(bodyTone));
+  body.position.y = 0.275 * s + bodyR;
+  g.add(body);
+  const headY = 0.55 * s + 2 * bodyR + headR * 0.62; // overlapped: no neck
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.3 * scale, 14, 14),
-    silhouetteMat("#160d14", 0.6)
+    new THREE.SphereGeometry(headR, 14, 14),
+    pegMat(accent?.zone === "head" ? accent.color : PEG.head)
   );
-  head.position.y = 2.1 * scale;
-  g.add(body, head);
-  contactShadow(g, 0.55 * scale, 0.5);
-  g.position.set(x, 0, z);
-  g.rotation.y = Math.random() * Math.PI * 2;
+  head.position.y = headY;
+  g.add(head);
+  if (accent?.zone === "band") {
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(bodyR + 0.012, bodyR + 0.012, 0.2 * s, 14),
+      pegMat(accent.color)
+    );
+    band.position.y = 0.62 * s;
+    g.add(band);
+  }
+  if (nose) {
+    const n = new THREE.Mesh(new THREE.SphereGeometry(0.05 * s, 8, 8), head.material);
+    n.position.set(0, headY, headR * 0.95);
+    g.add(n);
+  }
+  if (accessory) {
+    const aMat = pegMat(bodyTone);
+    const top = headY + headR;
+    if (accessory === "hatFlat") {
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * s, 0.5 * s, 0.035, 16), aMat);
+      brim.position.y = top - headR * 0.3;
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * s, 0.24 * s, 0.16 * s, 12), aMat);
+      crown.position.y = top - headR * 0.3 + 0.09 * s;
+      g.add(brim, crown);
+    } else if (accessory === "hatFloppy") {
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 0.2 * s, 14), aMat);
+      hat.position.y = top - headR * 0.22;
+      g.add(hat);
+    } else if (accessory === "glass") {
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.03 * s, 0.14 * s, 6), aMat);
+      stem.position.set(bodyR + 0.13 * s, 0.86 * s, 0);
+      const cup = new THREE.Mesh(new THREE.ConeGeometry(0.085 * s, 0.12 * s, 10), aMat);
+      cup.rotation.x = Math.PI;
+      cup.position.set(bodyR + 0.13 * s, 0.99 * s, 0);
+      g.add(stem, cup);
+    } else if (accessory === "cup") {
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.065 * s, 0.06 * s, 0.22 * s, 10), aMat);
+      cup.position.set(bodyR + 0.12 * s, 0.92 * s, 0);
+      g.add(cup);
+    } else if (accessory === "bag") {
+      const bag = new THREE.Mesh(new THREE.SphereGeometry(0.2 * s, 10, 8), aMat);
+      bag.scale.set(1, 0.72, 0.55);
+      bag.position.set(-(bodyR + 0.06 * s), 0.5 * s, 0);
+      g.add(bag);
+    } else if (accessory === "book") {
+      const book = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.025, 0.24 * s), aMat);
+      book.position.set(bodyR + 0.12 * s, 1.0 * s, 0.04);
+      book.rotation.z = 0.3;
+      g.add(book);
+    }
+  }
+  g.rotation.z = lean;
+  contactShadow(g, 0.55 * s, 0.5);
+  return g;
+}
+
+// --- the cast: hand-placed, never a grid ----------------------------------------
+// One tight knot of four (dancing), a pair at the rail, uneven tables, two
+// solitaries, one child. ~1 in 8 carries a single chalky accent; over half
+// carry nothing. Exactly one figure (the reader) faces away from the sun.
+const A = PEG.accents;
+const CAST = [
+  // the knot
+  { x: -2.6, z: 4.4, dancer: true, scale: 0.82, lean: 0.03 },
+  { x: -1.3, z: 5.3, dancer: true, scale: 0.86, lean: -0.025, accent: { zone: "head", color: A.terracotta } },
+  { x: 0.3, z: 4.2, dancer: true, scale: 0.78, lean: 0.045 },
+  { x: 1.5, z: 5.0, dancer: true, scale: 0.82, lean: -0.04, accessory: "cup" },
+  // the pair at the rail, tilted toward each other
+  { x: -10.2, z: 3.1, scale: 0.86, lean: 0.045, yRot: Math.PI - 0.35, accessory: "glass" },
+  { x: -11.4, z: 3.2, scale: 0.82, lean: -0.05, yRot: Math.PI + 0.4 },
+  // solitary under a floppy hat, right rail, space around them
+  { x: 18.6, z: 3.1, scale: 0.82, lean: 0.02, accessory: "hatFloppy" },
+  // tables, unevenly held
+  { x: -12.4, z: 8.4, scale: 0.82, lean: 0.03, accessory: "hatFlat" },
+  { x: -6.4, z: 12.4, scale: 0.86, lean: -0.02 },
+  { x: -9.3, z: 11.6, scale: 0.82, lean: 0.035, accent: { zone: "band", color: A.teal } },
+  // the reader: the only one turned away from the sunset
+  { x: -13.4, z: 16.6, scale: 0.78, lean: 0.025, nose: true, accessory: "book", yRot: 0.15 },
+  { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03 },
+  { x: 6.6, z: 9.0, scale: 0.82, lean: 0.02 },
+  // the child, midground
+  { x: 7.4, z: 10.4, scale: 0.5, lean: 0.04 },
+  // solitary near the camera, bag slung, alone on purpose
+  { x: -1.8, z: 18.4, scale: 0.82, lean: -0.045, nose: true, accessory: "bag" },
+];
+const people = [];
+for (const c of CAST) {
+  const g = buildPeg(c);
+  g.position.set(c.x, 0, c.z);
+  g.rotation.y = c.yRot ?? Math.PI + (Math.random() - 0.5) * 0.6; // most face the sun
   terrace.add(g);
   people.push({
-    g, dancer,
+    g, dancer: !!c.dancer, lean: c.lean ?? 0,
     phase: Math.random() * Math.PI * 2,
     freq: 0.75 + Math.random() * 0.5, // nobody moves at the same tempo
-    baseX: x,
+    baseX: c.x,
   });
-}
-// seated-ish clusters near tables
-for (const [x, z] of tableSpots) {
-  person(x + 1.6, z + 0.4, { scale: 0.82 });
-  if (Math.random() > 0.35) person(x - 1.5, z - 0.6, { scale: 0.82 });
-}
-// dancers near the booth
-for (let i = 0; i < 6; i++) {
-  person(-4 + i * 1.7 + Math.random(), 4.2 + Math.random() * 2.2, { dancer: true });
 }
 
 // --- walkers: waiters and passersby, never in a hurry -------------------------
 const walkers = [];
-function makeWalker({ tint, scale = 0.8, slim = false }) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry((slim ? 0.34 : 0.42) * scale, 1.2 * scale, 6, 14),
-    silhouetteMat(tint, 0.65)
-  );
-  body.position.y = 1.08 * scale;
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.29 * scale, 14, 14),
-    silhouetteMat("#3d2a30", 0.6)
-  );
-  head.position.y = 2.12 * scale;
-  g.add(body, head);
-  contactShadow(g, 0.5 * scale, 0.45);
+function makeWalker({ tint, scale = 0.8, slim = false, accessory = null }) {
+  const g = buildPeg({ scale, tone: tint, slim, accessory });
   terrace.add(g);
   return g;
 }
@@ -392,7 +477,7 @@ function makeWalker({ tint, scale = 0.8, slim = false }) {
 for (const station of [new THREE.Vector3(9, 0, 24.5), new THREE.Vector3(-13, 0, 24.5)]) {
   walkers.push({
     kind: "waiter",
-    g: makeWalker({ tint: "#42333b", scale: 0.82, slim: true }),
+    g: makeWalker({ tint: "#3f2c27", scale: 0.82, slim: true }),
     state: "post", stateUntil: 8 + Math.random() * 20,
     from: station.clone(), to: station.clone(), home: station,
     t0: 0, dur: 1, speed: 1.0 + Math.random() * 0.15,
@@ -406,7 +491,7 @@ const PROMENADE_Z = 23.5;
 for (let i = 0; i < 3; i++) {
   const w = {
     kind: "stroller",
-    g: makeWalker({ tint: PALETTE[i % PALETTE.length], scale: 0.8 + Math.random() * 0.1 }),
+    g: makeWalker({ tint: PEG.tones[i % PEG.tones.length], scale: 0.8 + Math.random() * 0.1 }),
     state: "away", stateUntil: 6 + i * 22 + Math.random() * 18,
     from: new THREE.Vector3(), to: new THREE.Vector3(),
     t0: 0, dur: 1, speed: 0.85 + Math.random() * 0.3,
@@ -421,14 +506,14 @@ for (let i = 0; i < 3; i++) {
 // terrace, a shade lighter than everyone, they come to the rail just to watch.
 // Staggered so the rail occasionally gets quiet company.
 const FLANEURS = [
-  { tint: "#7d6a59", scale: 0.96, speed: 0.72, first: 12 },
+  { tint: "#7d6a59", scale: 0.96, speed: 0.72, first: 12, accessory: "hatFlat" },
   { tint: "#6c6072", scale: 0.92, speed: 0.66, first: 75 },
   { tint: "#84705f", scale: 0.99, speed: 0.78, first: 150 },
 ];
 for (const f of FLANEURS) {
   const w = {
     kind: "flaneur",
-    g: makeWalker({ tint: f.tint, scale: f.scale, slim: true }),
+    g: makeWalker({ tint: f.tint, scale: f.scale, slim: true, accessory: f.accessory }),
     state: "away", stateUntil: f.first + Math.random() * 15,
     from: new THREE.Vector3(), to: new THREE.Vector3(),
     t0: 0, dur: 1, speed: f.speed,
@@ -463,15 +548,15 @@ deskGlow.position.y = 1.56;
 booth.add(desk, deskGlow);
 const dj = new THREE.Group();
 const djBody = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.45, 1.2, 6, 14),
-  silhouetteMat("#120b1c", 0.6)
+  new THREE.CapsuleGeometry(0.46, 0.6, 6, 14),
+  pegMat("#2c1a22")
 );
-djBody.position.y = 1.15;
+djBody.position.y = 0.76;
 const djHead = new THREE.Mesh(
-  new THREE.SphereGeometry(0.32, 14, 14),
-  silhouetteMat("#160d14", 0.6)
+  new THREE.SphereGeometry(0.39, 14, 14),
+  pegMat(PEG.head)
 );
-djHead.position.y = 2.25;
+djHead.position.y = 1.71;
 dj.add(djBody, djHead);
 dj.position.z = -1.2;
 booth.add(dj);
@@ -965,19 +1050,21 @@ function tick() {
   seaMat.uniforms.uTime.value = t;
   seaMat.uniforms.uEnergy.value = energy;
 
+  // stop-motion cadence: figures are posed on threes, not eased
+  const ts = Math.floor(t * 8) / 8;
   for (const p of people) {
     if (p.dancer) {
       // groove: two incommensurate sines, squash instead of jump, hips not heels
-      const a = t * (1.1 + energy * 0.9) * p.freq + p.phase;
+      const a = ts * (1.1 + energy * 0.9) * p.freq + p.phase;
       const groove = (Math.sin(a) + Math.sin(a * 1.618 + 1.3)) * 0.5;
       p.g.position.y = (groove + 1) * 0.04 * (0.4 + energy) * MOTION;
       p.g.scale.y = 1 - groove * 0.035 * MOTION;
-      p.g.rotation.z = Math.sin(a * 0.5) * 0.045 * MOTION;
+      p.g.rotation.z = p.lean + Math.sin(a * 0.5) * 0.045 * MOTION;
       p.g.position.x = p.baseX + Math.sin(a * 0.25 + p.phase) * 0.12 * MOTION;
     } else {
-      // standing: breath and slow weight shifts, nothing more
-      p.g.position.y = Math.sin(t * 0.55 * p.freq + p.phase) * 0.012 * MOTION;
-      p.g.rotation.z = Math.sin(t * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
+      // standing: breath and slow weight shifts around the hand-placed lean
+      p.g.position.y = Math.sin(ts * 0.55 * p.freq + p.phase) * 0.012 * MOTION;
+      p.g.rotation.z = p.lean + Math.sin(ts * 0.22 * p.freq + p.phase) * 0.02 * MOTION;
     }
   }
   // walkers: ease in and out of every journey, gait as a quiet two-beat
@@ -987,7 +1074,7 @@ function tick() {
       const eased = p * p * (3 - 2 * p);
       w.g.position.lerpVectors(w.from, w.to, eased);
       const stride = Math.min(1, Math.sin(p * Math.PI) * 3); // soft start and stop
-      const a = t * w.speed * 5.2 + w.phase;
+      const a = ts * w.speed * 5.2 + w.phase;
       w.g.position.y += (1 - Math.cos(a * 2)) * 0.014 * stride * MOTION;
       w.g.rotation.z = Math.sin(a) * 0.035 * stride * MOTION;
       if (p >= 1) {
@@ -1015,8 +1102,8 @@ function tick() {
       }
     } else {
       // at rest: the same breath as everyone else
-      w.g.position.y = Math.sin(t * 0.55 + w.phase) * 0.012 * MOTION;
-      w.g.rotation.z = Math.sin(t * 0.22 + w.phase) * 0.02 * MOTION;
+      w.g.position.y = Math.sin(ts * 0.55 + w.phase) * 0.012 * MOTION;
+      w.g.rotation.z = Math.sin(ts * 0.22 + w.phase) * 0.02 * MOTION;
       w.g.rotation.x = w.state === "gaze" ? -0.035 : 0; // a slight lean back, taking it in
       if (t > w.stateUntil) {
         if (w.kind === "waiter") {
@@ -1060,7 +1147,7 @@ function tick() {
 
   // the DJ's moment: every few minutes, turn from the decks and watch the horizon
   const enjoy = THREE.MathUtils.smoothstep(Math.sin(t * 0.024 + 4.2), 0.82, 0.94);
-  const da = t * (1.3 + energy * 0.7);
+  const da = ts * (1.3 + energy * 0.7);
   dj.position.y = (Math.sin(da) + Math.sin(da * 1.618)) * 0.02 * MOTION * (1 - enjoy);
   dj.rotation.x = Math.sin(da) * 0.035 * MOTION * (1 - enjoy) - enjoy * 0.12;
   dj.rotation.y = enjoy * Math.PI;
