@@ -19,13 +19,18 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
-const CYCLE_MINUTES = 12;
-// staged arrival: every session opens at the top of the arc, the sun high
-// in a Pinto color field, already (barely) descending — the full runway
-const CYCLE_OFFSET = (Math.acos(2 * 0.97 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+const CYCLE_MINUTES = 16;
+// staged arrival: the set starts about an hour and a half before sundown —
+// the top of the arc, late-afternoon light, the whole evening ahead
+const CYCLE_OFFSET = (Math.acos(2 * 0.995 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
 // --- palette keyframes: the cycle moves through these (Pinto registers) ------
 const KEYS = {
+  afternoon: { // late afternoon, 1.5h to sundown: pastel azure-gold (Pinto pano)
+    horizon: "#e9a979", mid: "#d29b85", high: "#6a74ab", zenith: "#2a3155",
+    sun: "#fff0cf", fog: "#5e4147", seaShallow: "#4a8a96", glitter: "#f5bc7e",
+    seaHaze: "#e0935f",
+  },
   preset: { // the high sun: a coral core hovering in a dusty violet field (Pinto)
     horizon: "#de8a5a", mid: "#c97b6e", high: "#595a93", zenith: "#1d2244",
     sun: "#ffdcae", fog: "#54363e", seaShallow: "#3d7e8c", glitter: "#f2a865",
@@ -55,10 +60,12 @@ const _c = new THREE.Color();
 const _warmNight = new THREE.Color("#e8924e");
 const _emberRim = new THREE.Color("#e08a50");
 const _moonCool = new THREE.Color("#4a4f7a");
+const _hotOrange = new THREE.Color("#ff8e3f");
 function paletteAt(key, alt) {
   if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
   if (alt < 0.8) return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.35);
-  return _c.copy(KEYS.golden[key]).lerp(KEYS.preset[key], (alt - 0.8) / 0.2);
+  if (alt < 0.93) return _c.copy(KEYS.golden[key]).lerp(KEYS.preset[key], (alt - 0.8) / 0.13);
+  return _c.copy(KEYS.preset[key]).lerp(KEYS.afternoon[key], (alt - 0.93) / 0.07);
 }
 
 const renderer = new THREE.WebGLRenderer({
@@ -243,6 +250,9 @@ const SIL = {
   cool: { value: new THREE.Color("#241a3e") },
   lift: { value: new THREE.Color("#0d0712") },
   rimI: { value: 0.3 },
+  hot: { value: new THREE.Color("#ff8e3f") },
+  peak: { value: 0 },
+  sunV: { value: new THREE.Vector3(0, 0.2, -1) },
 };
 function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
@@ -251,6 +261,9 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     s.uniforms.uCoolC = SIL.cool;
     s.uniforms.uLiftC = SIL.lift;
     s.uniforms.uRimI = SIL.rimI;
+    s.uniforms.uHotC = SIL.hot;
+    s.uniforms.uPeak = SIL.peak;
+    s.uniforms.uSunV = SIL.sunV;
     s.vertexShader = s.vertexShader.replace(
       "#include <common>",
       "varying vec3 vSilWorld;\n#include <common>"
@@ -260,7 +273,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     );
     s.fragmentShader = s.fragmentShader.replace(
       "#include <common>",
-      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform float uRimI;\nvarying vec3 vSilWorld;\n#include <common>"
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak;\nvarying vec3 vSilWorld;\n#include <common>"
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
@@ -270,9 +283,13 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       float rimNdV = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 2.6);
       float topness = saturate(geometryNormal.y * 0.8 + 0.2);
       outgoingLight += uRimC * rimNdV * topness * uRimI${opts.floor || opts.flat ? " * 0.12" : ""};
+      // peak-sun backlight: a hot contour carved on the sun-facing edge only
+      float hotWrap = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 1.8)
+                    * saturate(dot(geometryNormal, uSunV));
+      outgoingLight += uHotC * hotWrap * 0.85 * uPeak${opts.floor || opts.flat ? " * 0.12" : ""};
       // directional shadow fill: camera-facing sides fall to cool plum, never amber
       float camFacing = saturate(dot(geometryNormal, geometryViewDir));
-      outgoingLight += uCoolC * (camFacing * 0.07 + (0.5 - 0.5 * geometryNormal.y) * 0.03)
+      outgoingLight += uCoolC * (camFacing * 0.07 * (1.0 + 0.85 * uPeak) + (0.5 - 0.5 * geometryNormal.y) * 0.03)
                      * (0.4 + 0.6 * depthFade);
       // lifted black point, easing darker toward the rail for the graphic read
       outgoingLight = max(outgoingLight, uLiftC * (0.45 + 0.55 * depthFade));
@@ -921,6 +938,113 @@ const pelican = makeBird({ body: 0.34, wing: 1.7, beak: 0.85 });
 let pelicanAt = 160, pelicanT = -1, pelicanDir = 1;
 const PELICAN_SECONDS = 34;
 
+// --- islands on the horizon: the Es Vedra silhouette and company ----------------
+{
+  const islandMat = new THREE.MeshBasicMaterial({ color: "#161028" });
+  function island(x, z, w, h) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      islandMat
+    );
+    m.scale.set(w, h, w * 0.45);
+    m.position.set(x, -0.45, z);
+    scene.add(m);
+  }
+  island(-130, -235, 34, 9);  // the steep rock, near the sun's line
+  island(-96, -238, 18, 3.5); // its low companion
+  island(112, -240, 55, 4.5); // a long flat island to the east
+}
+
+// --- the speedboat: a quick stitch across the bay -------------------------------
+const speedboat = new THREE.Group();
+{
+  const mat = new THREE.MeshBasicMaterial({ color: "#140e1c", fog: false });
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.32, 0.7), mat);
+  hull.position.y = 0.16;
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.9, 4), mat);
+  bow.rotation.z = -Math.PI / 2;
+  bow.position.set(1.7, 0.16, 0);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.5), mat);
+  cabin.position.set(-0.3, 0.45, 0);
+  const wake = new THREE.Mesh(
+    new THREE.PlaneGeometry(7, 0.7),
+    new THREE.MeshBasicMaterial({
+      color: "#dfe6ea", transparent: true, opacity: 0.22, fog: false,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    })
+  );
+  wake.rotation.x = -Math.PI / 2;
+  wake.position.set(-4.6, 0.02, 0);
+  speedboat.add(hull, bow, cabin, wake);
+  speedboat.visible = false;
+  scene.add(speedboat);
+}
+let speedboatAt = 70, speedboatT = -1, speedboatDir = 1;
+const SPEEDBOAT_SECONDS = 22;
+
+// --- the boardwalk: the world passing in front of the cafe ----------------------
+const boardwalk = new THREE.Mesh(
+  new THREE.BoxGeometry(60, 0.25, 5.5),
+  silhouetteMat("#1f1410", 0.9, {}, { floor: true })
+);
+boardwalk.position.set(0, -0.3, -4.5);
+boardwalk.receiveShadow = true;
+scene.add(boardwalk);
+const beach = new THREE.Mesh(new THREE.PlaneGeometry(600, 13), silhouetteMat("#191009", 0.95));
+beach.rotation.x = -Math.PI / 2;
+beach.position.set(0, -0.42, -13.5);
+scene.add(beach);
+
+const bwWalkers = [];
+for (let i = 0; i < 4; i++) {
+  const g = buildPeg({ scale: 0.8 + (i % 3) * 0.04, slim: i % 2 === 0 });
+  g.visible = false;
+  terrace.add(g);
+  bwWalkers.push({
+    g, state: "away", until: 8 + i * 26 + Math.random() * 20,
+    t0: 0, dur: 1, dir: 1, z: -4, k0: 0,
+    speed: 0.7 + Math.random() * 0.35,
+    phase: Math.random() * Math.PI * 2,
+    persona: i === 0 ? "flaneur" : i === 3 ? "dancer" : "passer",
+    pauseAt: 0, paused: false,
+  });
+}
+const BW_Y = -0.175; // standing on the boardwalk
+
+// --- the shore: waves crashing, ebbing, flowing ---------------------------------
+const foamMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  uniforms: {
+    uTime: { value: 0 },
+    uFoam: { value: new THREE.Color("#e8e0d2") },
+    uA: { value: 0.3 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform float uTime, uA;
+    uniform vec3 uFoam;
+    varying vec2 vUv;
+    void main() {
+      float tide = sin(uTime * 0.42) * 0.5 + 0.5; // the slow breath of the tide
+      float edge = 0.30 + 0.28 * tide
+                 + sin(vUv.x * 52.0 + uTime * 0.7) * 0.04
+                 + sin(vUv.x * 13.0 - uTime * 0.3) * 0.06;
+      float crest = smoothstep(edge + 0.02, edge - 0.03, vUv.y)
+                  * smoothstep(edge - 0.30, edge - 0.10, vUv.y);
+      float lace = fract(sin(dot(floor(vec2(vUv.x * 220.0, vUv.y * 60.0)), vec2(12.9898, 78.233))) * 43758.5453);
+      gl_FragColor = vec4(uFoam, crest * uA * (0.55 + 0.45 * lace));
+    }
+  `,
+});
+const foam = new THREE.Mesh(new THREE.PlaneGeometry(600, 7), foamMat);
+foam.rotation.x = -Math.PI / 2;
+foam.position.set(0, -0.38, -11);
+scene.add(foam);
+
 // --- raking light: long soft shadows toward the camera ------------------------
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
@@ -1152,7 +1276,7 @@ function tick() {
     : 0.5 + 0.5 * Math.cos(((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2);
   SUN_DIR.set(
     -0.18,
-    THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.09 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
+    THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.15 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
     -1
   ).normalize();
   skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", alt));
@@ -1499,6 +1623,81 @@ function tick() {
     }
   }
 
+  // the speedboat: fast, glamorous, gone
+  if (speedboatT < 0 && t > speedboatAt) {
+    speedboatT = t;
+    speedboatDir = Math.random() < 0.5 ? 1 : -1;
+    speedboat.rotation.y = speedboatDir > 0 ? 0 : Math.PI;
+    speedboat.visible = true;
+  }
+  if (speedboatT >= 0) {
+    const k = (t - speedboatT) / SPEEDBOAT_SECONDS;
+    if (k >= 1) {
+      speedboatT = -1;
+      speedboatAt = t + 210 + Math.random() * 160;
+      speedboat.visible = false;
+    } else {
+      speedboat.position.set(speedboatDir * (k * 460 - 230), -0.42 + Math.sin(t * 2.6) * 0.05, -92);
+      speedboat.rotation.z = Math.sin(t * 2.6) * 0.015;
+    }
+  }
+
+  // the boardwalk: passersby, the occasional flaneur, the occasional dancer
+  for (const w of bwWalkers) {
+    if (w.state === "away") {
+      if (t > w.until) {
+        w.state = "cross";
+        w.dir = Math.random() < 0.5 ? 1 : -1;
+        w.t0 = t;
+        w.z = -3.6 - Math.random() * 1.4;
+        w.dur = 64 / w.speed;
+        w.pauseAt = 0.35 + Math.random() * 0.3;
+        w.paused = false;
+        w.g.visible = true;
+        w.g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      }
+    } else if (w.state === "cross") {
+      const k = Math.min(1, (t - w.t0) / w.dur);
+      w.g.position.set(w.dir * (k * 64 - 32), BW_Y, w.z);
+      const a = ts * w.speed * 5.2 + w.phase;
+      w.g.position.y += (1 - Math.cos(a * 2)) * 0.014 * MOTION;
+      w.g.rotation.z = Math.sin(a) * 0.035 * MOTION;
+      if (!w.paused && w.persona !== "passer" && k > w.pauseAt) {
+        w.state = "pause";
+        w.paused = true;
+        w.k0 = k;
+        w.until = t + (w.persona === "flaneur" ? 14 + Math.random() * 14 : 7 + Math.random() * 5);
+        w.g.rotation.y = Math.PI; // face the sea
+        w.g.rotation.z = 0;
+      }
+      if (k >= 1) {
+        w.state = "away";
+        w.g.visible = false;
+        w.until = t + 25 + Math.random() * 50;
+      }
+    } else {
+      if (w.persona === "dancer") {
+        const a = ts * 2.2 + w.phase;
+        const groove = (Math.sin(a) + Math.sin(a * 1.618)) * 0.5;
+        w.g.position.y = BW_Y + (groove + 1) * 0.035 * MOTION;
+        w.g.rotation.z = Math.sin(a * 0.5) * 0.05 * MOTION;
+      } else {
+        w.g.position.y = BW_Y + Math.sin(ts * 0.55 + w.phase) * 0.012 * MOTION;
+        w.g.rotation.x = -0.03;
+      }
+      if (t > w.until) {
+        w.state = "cross";
+        w.g.rotation.x = 0;
+        w.g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        w.t0 = t - w.k0 * w.dur; // resume the crossing where it left off
+      }
+    }
+  }
+
+  // the shore breathes
+  foamMat.uniforms.uTime.value = t;
+  foamMat.uniforms.uFoam.value.set("#e8e0d2").lerp(_moonCool, night * 0.55).multiplyScalar(0.75 + 0.25 * alt);
+
   for (const b of boats) {
     b.g.position.y = Math.sin(t * 0.5 + b.phase) * 0.09 * MOTION - 0.05;
     b.g.rotation.z = Math.sin(t * 0.4 + b.phase) * 0.03 * MOTION;
@@ -1531,6 +1730,10 @@ function tick() {
   SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15).lerp(_moonCool, 0.6 * deepNight);
   SIL.lift.value.set("#0d0712").multiplyScalar(1 + 0.5 * deepNight);
   SIL.rimI.value = 0.16 + 0.26 * alt + 0.18 * deepNight;
+  // peak-sun figure carve: hot sun-side rim + boosted cool fill, gated to the peak
+  SIL.peak.value = THREE.MathUtils.smoothstep(alt, 0.82, 0.95);
+  SIL.hot.value.copy(paletteAt("sun", alt)).lerp(_hotOrange, 0.45);
+  SIL.sunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
   danceGlow.intensity = night * (3.2 + energy * 1.8);
 
