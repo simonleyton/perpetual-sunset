@@ -269,7 +269,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       // a thin warm sliver along the upward curves — the separator at the rail
       float rimNdV = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 2.6);
       float topness = saturate(geometryNormal.y * 0.8 + 0.2);
-      outgoingLight += uRimC * rimNdV * topness * uRimI;
+      outgoingLight += uRimC * rimNdV * topness * uRimI${opts.floor || opts.flat ? " * 0.12" : ""};
       // directional shadow fill: camera-facing sides fall to cool plum, never amber
       float camFacing = saturate(dot(geometryNormal, geometryViewDir));
       outgoingLight += uCoolC * (camFacing * 0.07 + (0.5 - 0.5 * geometryNormal.y) * 0.03)
@@ -280,7 +280,9 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       // break the floor plane: plank-width value steps plus fine grain
       float plank = fract(sin(floor(vSilWorld.x / 1.35) * 12.9898) * 43758.5453);
       float fgrain = fract(sin(dot(vSilWorld.xz * 7.0, vec2(12.9898, 78.233))) * 43758.5453);
-      outgoingLight *= 0.94 + plank * 0.06 + (fgrain - 0.5) * 0.05;` : ""}
+      outgoingLight *= 0.94 + plank * 0.06 + (fgrain - 0.5) * 0.05;
+      // the foreground falls into its own warm shadow; the eye goes to the sea
+      outgoingLight *= mix(1.0, 0.55, smoothstep(8.0, 25.0, vSilWorld.z));` : ""}
       ${opts.grain ? /* glsl */ `
       // handmade: faint material grain, only legible up close
       float pg = fract(sin(dot(vSilWorld.xy * 42.0 + vSilWorld.z * 17.0, vec2(12.9898, 78.233))) * 43758.5453);
@@ -320,7 +322,7 @@ function contactShadow(parent, radius, opacity, x = 0, z = 0) {
 const terrace = new THREE.Group();
 scene.add(terrace);
 
-const deckMat = silhouetteMat("#160d1c", 0.9, {}, { floor: true });
+const deckMat = silhouetteMat("#261410", 0.9, {}, { floor: true });
 const deck = new THREE.Mesh(new THREE.BoxGeometry(46, 1.2, 26), deckMat);
 deck.position.set(0, -0.6, 14);
 terrace.add(deck);
@@ -331,7 +333,7 @@ wall.position.set(0, 0.55, 1.6);
 terrace.add(wall);
 
 // tables: low cylinders with a candle glow
-const tableMat = silhouetteMat("#120a18", 0.7);
+const tableMat = silhouetteMat("#2a1712", 0.7, {}, { flat: true });
 const candleMat = new THREE.MeshBasicMaterial({ color: "#ff9d4f" });
 const tableSpots = [
   [-14, 8], [-8, 12], [-15, 16], [8, 9], [14, 13], [9, 17], [-3, 18],
