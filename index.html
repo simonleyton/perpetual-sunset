@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perpetual Sunset — a café where the sun never finishes setting</title>
+  <meta name="description" content="A Balearic café at eternal golden hour. Downtempo sets, warm light, nowhere to be." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <header class="hud hud-top">
+    <div class="wordmark">
+      <h1>Perpetual Sunset</h1>
+      <p class="tagline">Balearic café · est. forever</p>
+    </div>
+    <div class="clock" id="clock" title="The minute never arrives">8:47:00 <span>PM</span></div>
+  </header>
+
+  <footer class="hud hud-bottom">
+    <div class="now-playing" id="now-playing">
+      <span class="dot"></span>
+      <span id="np-text">Tonight's resident is warming up…</span>
+    </div>
+    <div id="player-dock"></div>
+  </footer>
+
+  <div class="gate" id="gate">
+    <div class="gate-inner">
+      <h1>Perpetual Sunset</h1>
+      <p>A café on the edge of the Mediterranean where the sun never finishes setting.</p>
+      <button id="enter">Take a seat</button>
+      <p class="fine">sound on · the set is live</p>
+    </div>
+  </div>
+
+  <script src="https://widget.mixcloud.com/media/js/widgetApi.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
