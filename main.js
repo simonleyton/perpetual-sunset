@@ -447,8 +447,7 @@ const CAST = [
   // the reader: the only one turned away from the sunset
   { x: -13.4, z: 16.6, scale: 0.78, lean: 0.025, nose: true, accessory: "book", yRot: 0.15 },
   { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03 },
-  // the child, midground
-  { x: 7.4, z: 10.4, scale: 0.5, lean: 0.04 },
+  { x: 7.0, z: 10.6, scale: 0.78, lean: 0.04 },
   // solitary near the camera, bag slung, alone on purpose
   { x: -1.8, z: 18.4, scale: 0.82, lean: -0.045, nose: true, accessory: "bag" },
 ];
