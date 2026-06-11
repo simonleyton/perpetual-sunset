@@ -293,6 +293,42 @@ function palm(x, z, h = 9, lean = 0.12) {
 palm(-24, 5, 10, 0.16);
 palm(25, 11, 8.5, -0.1);
 
+// --- boats: sparse silhouettes adrift in the haze ----------------------------
+const boats = [];
+const hullMat = new THREE.MeshBasicMaterial({ color: "#0d0812" });
+const sailMat = new THREE.MeshBasicMaterial({ color: "#120b18", side: THREE.DoubleSide });
+const riggingLightMat = new THREE.MeshBasicMaterial({ color: "#ff9d4f" });
+function boat(x, z, { sail = false, scale = 1 } = {}) {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.18, 4.2, 6, 1), hullMat);
+  hull.rotation.z = Math.PI / 2;
+  hull.scale.y = 0.45;
+  g.add(hull);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.4, 5), hullMat);
+  mast.position.y = 1.7;
+  g.add(mast);
+  if (sail) {
+    const sailGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 3.3, 0), new THREE.Vector3(0, 0.45, 0), new THREE.Vector3(1.9, 0.45, 0),
+    ]);
+    sailGeo.setIndex([0, 1, 2]);
+    sailGeo.computeVertexNormals();
+    g.add(new THREE.Mesh(sailGeo, sailMat));
+  }
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), riggingLightMat);
+  lantern.position.y = sail ? 3.4 : 1.0;
+  lantern.position.x = sail ? 0 : 1.6;
+  g.add(lantern);
+  g.scale.setScalar(scale);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  boats.push({ g, phase: Math.random() * Math.PI * 2, drift: (Math.random() - 0.5) * 0.0035 });
+}
+boat(-34, -68, { sail: true, scale: 1.15 });
+boat(16, -78, { scale: 1.05 });
+boat(44, -100, { sail: true, scale: 1.0 });
+boat(-58, -110, { scale: 0.9 });
+
 // --- mixcloud widget ---------------------------------------------------------
 const dock = document.getElementById("player-dock");
 const iframe = document.createElement("iframe");
@@ -394,6 +430,12 @@ function tick() {
   }
   dj.position.y = Math.abs(Math.sin(t * (2.0 + energy))) * 0.08;
   dj.rotation.x = Math.sin(t * (2.0 + energy)) * 0.05;
+
+  for (const b of boats) {
+    b.g.position.y = Math.sin(t * 0.5 + b.phase) * 0.09 * MOTION - 0.05;
+    b.g.rotation.z = Math.sin(t * 0.4 + b.phase) * 0.03 * MOTION;
+    b.g.position.x += b.drift * MOTION;
+  }
 
   for (const b of bulbs) {
     const k = 0.75 + 0.25 * Math.sin(t * 2.4 + b.phase);
