@@ -11,6 +11,9 @@ const CUE_SHEET = null;
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const MOTION = REDUCED_MOTION ? 0.15 : 1;
 
+// ?quiet — straight into the scene, no gate, no audio (art direction / review)
+const QUIET = new URLSearchParams(location.search).has("quiet");
+
 // --- palette: Miami-sky golden hour, never resolving --------------------
 const SKY = {
   horizon: new THREE.Color("#cf5a35"),
@@ -342,10 +345,14 @@ function currentEnergy(t) {
 }
 
 // --- gate / enter ------------------------------------------------------------
-document.getElementById("enter").addEventListener("click", () => {
-  document.getElementById("gate").classList.add("open");
-  widget?.play?.();
-});
+if (QUIET) {
+  document.getElementById("gate").remove();
+} else {
+  document.getElementById("enter").addEventListener("click", () => {
+    document.getElementById("gate").classList.add("open");
+    widget?.play?.();
+  });
+}
 
 // space bar = play/pause, anywhere on the page
 addEventListener("keydown", (e) => {
