@@ -26,18 +26,22 @@ const KEYS = {
   preset: { // the minutes before sunset: sun still up, gold over dusty blue
     horizon: "#e08a4a", mid: "#bc7068", high: "#4e4f86", zenith: "#141831",
     sun: "#ffd9a8", fog: "#54323a", seaShallow: "#3f7a80", glitter: "#f0a45e",
+    seaHaze: "#d9764a",
   },
   golden: {
     horizon: "#cf5a35", mid: "#a04866", high: "#3a2a66", zenith: "#07060f",
     sun: "#ffb478", fog: "#3a2030", seaShallow: "#396b74", glitter: "#e08a4f",
+    seaHaze: "#d9764a",
   },
   dusk: {
     horizon: "#a83a30", mid: "#7e3257", high: "#2c2154", zenith: "#050410",
     sun: "#ff9c5e", fog: "#301a2b", seaShallow: "#2c5560", glitter: "#d4703f",
+    seaHaze: "#b65a3c",
   },
-  blue: {
-    horizon: "#5c3a55", mid: "#312a5e", high: "#1b1f4a", zenith: "#04030c",
-    sun: "#6e5a8a", fog: "#131022", seaShallow: "#1e3343", glitter: "#5a6f8a",
+  blue: { // night is a different quality of light, not its absence
+    horizon: "#6b4258", mid: "#3a3068", high: "#232452", zenith: "#0d0b22",
+    sun: "#6e5a8a", fog: "#1c1430", seaShallow: "#1e3343", glitter: "#5a6f8a",
+    seaHaze: "#7a4a44",
   },
 };
 for (const k of Object.values(KEYS))
@@ -46,6 +50,8 @@ for (const k of Object.values(KEYS))
 // alt: 0 = blue hour, 0.45 = dusk, 0.8 = golden, 1 = pre-sunset.
 const _c = new THREE.Color();
 const _warmNight = new THREE.Color("#e8924e");
+const _emberRim = new THREE.Color("#e08a50");
+const _moonCool = new THREE.Color("#4a4f7a");
 function paletteAt(key, alt) {
   if (alt < 0.45) return _c.copy(KEYS.blue[key]).lerp(KEYS.dusk[key], alt / 0.45);
   if (alt < 0.8) return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.35);
@@ -85,6 +91,8 @@ const skyMat = new THREE.ShaderMaterial({
     uMoonDir: { value: new THREE.Vector3(-0.08, 0.42, -1).normalize() },
     uMoonCol: { value: new THREE.Color("#d8dcec") },
     uMoonI: { value: 0 },
+    uEmberLine: { value: new THREE.Color("#c96a3e") },
+    uNightI: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec3 vDir;
@@ -94,8 +102,8 @@ const skyMat = new THREE.ShaderMaterial({
     }
   `,
   fragmentShader: /* glsl */ `
-    uniform vec3 uSunDir, uHorizon, uMid, uHigh, uZenith, uSun, uMoonDir, uMoonCol;
-    uniform float uTime, uEnergy, uEmber, uMoonI;
+    uniform vec3 uSunDir, uHorizon, uMid, uHigh, uZenith, uSun, uMoonDir, uMoonCol, uEmberLine;
+    uniform float uTime, uEnergy, uEmber, uMoonI, uNightI;
     varying vec3 vDir;
     void main() {
       float h = clamp(vDir.y, 0.0, 1.0);
@@ -114,6 +122,8 @@ const skyMat = new THREE.ShaderMaterial({
       // heavy atmospheric haze hugging the horizon
       vec3 haze = mix(uHorizon, uSun, 0.3);
       col = mix(col, haze, smoothstep(0.14, 0.0, h) * 0.45);
+      // the ember line: a last sliver of residual warmth at the waterline, night only
+      col += uEmberLine * exp(-h * 40.0) * uNightI * (0.4 + 0.08 * sin(uTime * 0.13));
       // faint long horizontal cloud bands, sunk deep
       float bands = sin(vDir.y * 60.0 + sin(vDir.x * 4.0) * 1.5) * 0.5 + 0.5;
       col += vec3(0.45, 0.18, 0.12) * bands * 0.03 * smoothstep(0.3, 0.05, h) * smoothstep(0.0, 0.04, h);
@@ -136,8 +146,10 @@ const seaMat = new THREE.ShaderMaterial({
     uShallow: { value: KEYS.golden.seaShallow.clone() },
     uGlitter: { value: KEYS.golden.glitter.clone() },
     uHaze: { value: new THREE.Color("#d9764a") },
+    uMoonGlade: { value: new THREE.Color("#aab4d8") },
     uEnergy: { value: 0.5 },
     uDay: { value: 1.0 },
+    uNight: { value: 0 },
   },
   vertexShader: /* glsl */ `
     uniform float uTime;
@@ -152,8 +164,8 @@ const seaMat = new THREE.ShaderMaterial({
     }
   `,
   fragmentShader: /* glsl */ `
-    uniform float uTime, uEnergy, uDay;
-    uniform vec3 uDeep, uShallow, uGlitter, uHaze;
+    uniform float uTime, uEnergy, uDay, uNight;
+    uniform vec3 uDeep, uShallow, uGlitter, uHaze, uMoonGlade;
     varying vec2 vUv;
     varying vec3 vPos;
     void main() {
@@ -164,6 +176,9 @@ const seaMat = new THREE.ShaderMaterial({
       float sparkle = sin(vPos.x * 8.0 + uTime * 2.2) * sin(vPos.y * 13.0 - uTime * 1.7);
       sparkle = smoothstep(0.55, 1.0, sparkle) * (0.6 + uEnergy * 0.8);
       col += uGlitter * path * (0.14 + sparkle * 0.55) * (0.25 + toHorizon * 0.85) * (0.12 + 0.88 * uDay);
+      // moonglade: a narrow silver path beneath the moon, night only
+      float mpath = exp(-pow((vUv.x - 0.46) * (9.0 - toHorizon * 5.0), 2.0));
+      col += uMoonGlade * mpath * (0.10 + sparkle * 0.35) * (0.25 + toHorizon) * uNight;
       // sea dissolves into the horizon haze
       col = mix(col, uHaze, smoothstep(0.8, 1.0, vUv.y) * 0.4 * (0.3 + 0.7 * uDay));
       // dither against banding
@@ -205,6 +220,10 @@ const starMat = new THREE.PointsMaterial({
   transparent: true, opacity: 0, depthWrite: false,
 });
 scene.add(new THREE.Points(starGeo, starMat));
+// the moon as a real source: faint cool top light, night only
+const moonLight = new THREE.DirectionalLight("#a9b4d8", 0);
+moonLight.position.set(-9, 47, -112);
+scene.add(moonLight);
 const lampGlow = new THREE.PointLight("#ff8f45", 6, 40, 1.8);
 lampGlow.position.set(0, 5.5, 14);
 scene.add(lampGlow);
@@ -327,12 +346,40 @@ for (const [x, z] of tableSpots) {
 
 // two candles actually cast light — small warm pools, the eye's resting points
 const practicals = [];
-for (const [x, z] of [[-3, 18], [8, 9]]) {
-  const p = new THREE.PointLight("#ffac5e", 1.1, 6.5, 2);
+for (const [x, z] of [[-3, 18], [8, 9], [-14, 8], [14, 13]]) {
+  const p = new THREE.PointLight("#ffac5e", 1.1, 7.5, 2);
   p.position.set(x, 1.55, z);
   terrace.add(p);
   practicals.push({ p, phase: x });
 }
+
+// night glow: soft warm bloom sprites over every practical flame ---------------
+const glowTex = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+  grd.addColorStop(0, "rgba(255, 176, 102, 0.85)");
+  grd.addColorStop(0.4, "rgba(255, 150, 80, 0.25)");
+  grd.addColorStop(1, "rgba(255, 140, 70, 0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
+const glows = [];
+function nightGlow(x, y, z, size) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, transparent: true, opacity: 0,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  s.position.set(x, y, z);
+  s.scale.setScalar(size);
+  terrace.add(s);
+  glows.push({ s, phase: x + z });
+}
+for (const [x, z] of tableSpots) nightGlow(x, 1.3, z, 1.7);
+nightGlow(0, 5.5, 14, 3.4);
+nightGlow(-2, 4.2, 5, 2.9);
 
 // --- the peg: one canonical handmade figure ------------------------------------
 // Johnny Kelly rules: capsule peg, head ~0.85 the body width, squat, no neck,
@@ -1040,13 +1087,6 @@ console.log(
   "font-size:14px;color:#ff8a5c", "color:#9a8fa8"
 );
 
-// --- perpetual clock: seconds tick, the minute never arrives ------------------
-const clockEl = document.getElementById("clock");
-setInterval(() => {
-  const s = new Date().getSeconds();
-  clockEl.innerHTML = `8:47:${String(s).padStart(2, "0")} <span>PM</span>`;
-}, 1000);
-
 // --- loop ---------------------------------------------------------------------
 const wind = { x: 0.6, target: 0.6, nextShift: 40 };
 
@@ -1082,6 +1122,15 @@ function tick() {
   sunLight.color.copy(paletteAt("sun", alt));
   // the café answers the dark: warm lighting breathes up as the sun sinks
   const night = THREE.MathUtils.smoothstep(1 - alt, 0.35, 0.92);
+  // deepest night only — zero through golden hour and dusk, no boundary pop
+  const deepNight = THREE.MathUtils.smoothstep(1 - alt, 0.75, 0.95);
+  skyMat.uniforms.uNightI.value = deepNight;
+  seaMat.uniforms.uNight.value = deepNight;
+  seaMat.uniforms.uHaze.value.copy(paletteAt("seaHaze", alt));
+  moonLight.intensity = 0.5 * deepNight;
+  scene.fog.density = 0.006 + 0.0015 * deepNight;
+  for (const gl of glows)
+    gl.s.material.opacity = (0.2 + 0.04 * Math.sin(t * 1.9 + gl.phase)) * deepNight;
   // ambient is cool now — the warmth lives in the key, not the bath
   hemi.intensity = 0.2 + 0.24 * alt + 0.1 * night;
   hemi.color.copy(paletteAt("high", alt)).multiplyScalar(1.5).lerp(_warmNight, night * 0.35);
@@ -1420,11 +1469,13 @@ function tick() {
     pp.panel.rotation.z = Math.sin(ts * 0.6 + pp.phase) * 0.01 * wind.x * MOTION;
   candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(0.72 + 0.45 * night);
   for (const pr of practicals)
-    pr.p.intensity = (0.8 + 0.6 * night) + Math.sin(t * 1.7 + pr.phase) * 0.1;
-  // silhouette treatment follows the sky: rim from the sun, fill from the zenith
-  SIL.rim.value.copy(paletteAt("sun", alt)).multiplyScalar(0.5);
-  SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15);
-  SIL.rimI.value = 0.16 + 0.26 * alt;
+    pr.p.intensity = (0.7 + 0.6 * night + 0.7 * deepNight) + Math.sin(t * 1.7 + pr.phase) * 0.1;
+  // silhouette treatment follows the sky: rim from the sun, fill from the zenith.
+  // At deepest night, the Muller duality: warm candle rim against cool moon fill.
+  SIL.rim.value.copy(paletteAt("sun", alt)).multiplyScalar(0.5).lerp(_emberRim, 0.65 * deepNight);
+  SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15).lerp(_moonCool, 0.6 * deepNight);
+  SIL.lift.value.set("#0d0712").multiplyScalar(1 + 0.5 * deepNight);
+  SIL.rimI.value = 0.16 + 0.26 * alt + 0.18 * deepNight;
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
   danceGlow.intensity = night * (3.2 + energy * 1.8);
 
