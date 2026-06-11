@@ -5,8 +5,7 @@ import * as THREE from "three";
 // CUE_SHEET: optional precomputed energy timeline [{t: seconds, energy: 0..1}]
 // exported from offline analysis of the mix file; drives crowd + sky breathing.
 // ---------------------------------------------------------------------------
-const MIX_FEED =
-  "/djjim8track/balearic-sunsets-ibizan-inspirations-from-hostal-la-torre-to-cafe-del-mar-40-years/";
+const MIX_FEED = "/trotika/trotika-deep-summer-mix-2013/";
 const CUE_SHEET = null;
 
 // --- palette: Miami-sky golden hour, never resolving --------------------
