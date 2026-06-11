@@ -103,9 +103,8 @@ body {
   z-index: 10;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(120% 90% at 50% 110%, rgba(228, 110, 62, 0.5), transparent 62%),
-    linear-gradient(180deg, #07060f 0%, #241636 48%, #6e3046 76%, #c2542f 100%);
+  background: rgba(10, 7, 18, 0.4);
+  backdrop-filter: blur(3px);
   transition: opacity 1.8s ease, visibility 1.8s;
 }
 .gate.open { opacity: 0; visibility: hidden; }
@@ -117,6 +116,7 @@ body {
   font-size: 52px;
   letter-spacing: 0.04em;
   margin-bottom: 14px;
+  text-shadow: 0 2px 34px rgba(0, 0, 0, 0.5);
 }
 .gate-inner p {
   font-weight: 300;
@@ -154,8 +154,32 @@ body {
   text-transform: uppercase;
 }
 
+.sound-pill {
+  position: fixed;
+  top: 26px; right: 36px;
+  z-index: 6;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 11px;
+  font-weight: 300;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 247, 239, 0.28);
+  border-radius: 999px;
+  padding: 11px 20px;
+  cursor: pointer;
+  transition: background 0.4s, opacity 0.8s;
+}
+.sound-pill:hover, .sound-pill:focus-visible {
+  background: rgba(255, 247, 239, 0.14);
+}
+.sound-pill[hidden] { display: none; }
+
 @media (max-width: 720px) {
   .hud { padding: 18px 20px; }
+  .sound-pill { top: 16px; right: 20px; }
   .wordmark h1 { font-size: 20px; }
   .clock { font-size: 16px; }
   .hud-bottom { flex-direction: column; align-items: stretch; gap: 10px; }

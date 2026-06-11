@@ -20,6 +20,9 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
 const CYCLE_MINUTES = 12;
+// staged arrival: every session opens with the sun just above the water,
+// already descending — dusk arrives within the visitor's first minutes
+const CYCLE_OFFSET = (Math.acos(2 * 0.62 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
 // --- palette keyframes: the cycle moves through these (Pinto registers) ------
 const KEYS = {
@@ -986,6 +989,7 @@ iframe.src =
 dock.appendChild(iframe);
 
 let widget = null;
+let pendingPlay = false;
 let energy = 0.5; // 0..1, drives crowd + sky + glitter
 let position = 0;
 
@@ -993,6 +997,7 @@ window.addEventListener("load", () => {
   if (!window.Mixcloud) return;
   widget = window.Mixcloud.PlayerWidget(iframe);
   widget.ready.then(async () => {
+    if (pendingPlay) widget.play();
     const name = await widget.getCurrentKey?.().catch(() => null);
     setNowPlaying(name || MIX_FEED);
     widget.events.progress.on((pos) => { position = pos; });
@@ -1027,21 +1032,65 @@ function currentEnergy(t) {
   return 0.5 + 0.25 * Math.sin(t * 0.07 + position * 0.013) + 0.12 * Math.sin(t * 0.21);
 }
 
-// --- gate / enter ------------------------------------------------------------
-if (QUIET) {
-  document.getElementById("gate").remove();
-} else {
-  document.getElementById("enter").addEventListener("click", () => {
-    document.getElementById("gate").classList.add("open");
-    widget?.play?.();
+// --- the veil ------------------------------------------------------------------
+// The scene runs from frame one; the veil is a thin invitation over it.
+// Click = sound + the veil lifts. Unanswered, it politely expires after 12s
+// into the muted scene with a sound pill — and then any tap starts the set.
+// Returning visitors never see the veil at all.
+const gateEl = document.getElementById("gate");
+const pillEl = document.getElementById("sound-pill");
+const RETURNING = localStorage.getItem("ps_v") === "1";
+let audioStarted = false;
+
+function startAudio() {
+  if (audioStarted) return;
+  audioStarted = true;
+  if (widget) widget.play();
+  else pendingPlay = true;
+  gateEl?.classList.add("open");
+  pillEl.hidden = true;
+  localStorage.setItem("ps_v", "1");
+}
+function offerPill() {
+  if (!audioStarted) pillEl.hidden = false;
+}
+function armTapAnywhere() {
+  addEventListener("pointerdown", (e) => {
+    if (audioStarted) return;
+    if (e.target.closest("a, button, iframe, #player-dock")) return;
+    startAudio();
   });
+}
+
+if (QUIET) {
+  gateEl.remove();
+  pillEl.remove();
+} else if (RETURNING) {
+  gateEl.remove();
+  offerPill();
+  armTapAnywhere();
+  pillEl.addEventListener("click", startAudio);
+} else {
+  document.getElementById("enter").addEventListener("click", (e) => {
+    e.stopPropagation();
+    startAudio();
+  });
+  pillEl.addEventListener("click", startAudio);
+  setTimeout(() => {
+    if (!audioStarted) {
+      gateEl.classList.add("open");
+      offerPill();
+      armTapAnywhere();
+    }
+  }, 12000);
 }
 
 // space bar = play/pause, anywhere on the page
 addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.target.closest("button, a, input")) return;
   e.preventDefault();
-  widget?.togglePlay?.();
+  if (!audioStarted) startAudio();
+  else widget?.togglePlay?.();
 });
 
 // subtle pointer parallax — lean, don't fly
@@ -1098,7 +1147,7 @@ function tick() {
   // --- the sun's pendulum: golden -> dusk -> blue hour -> back ---
   const alt = Number.isFinite(PHASE_LOCK)
     ? Math.min(1, Math.max(0, PHASE_LOCK))
-    : 0.5 + 0.5 * Math.cos((t / (CYCLE_MINUTES * 60)) * Math.PI * 2);
+    : 0.5 + 0.5 * Math.cos(((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2);
   SUN_DIR.set(-0.18, THREE.MathUtils.lerp(-0.075, 0.165, alt), -1).normalize();
   skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", alt));
   skyMat.uniforms.uMid.value.copy(paletteAt("mid", alt));
