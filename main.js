@@ -13,11 +13,11 @@ const MOTION = REDUCED_MOTION ? 0.15 : 1;
 
 // --- palette: Miami-sky golden hour, never resolving --------------------
 const SKY = {
-  horizon: new THREE.Color("#ff9d6b"),
-  mid: new THREE.Color("#e07a8b"),
-  high: new THREE.Color("#7d4a8f"),
-  zenith: new THREE.Color("#241340"),
-  sun: new THREE.Color("#ffd9a0"),
+  horizon: new THREE.Color("#cf5a35"),
+  mid: new THREE.Color("#a04866"),
+  high: new THREE.Color("#3a2a66"),
+  zenith: new THREE.Color("#07060f"),
+  sun: new THREE.Color("#ffb478"),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -27,10 +27,10 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2("#c46a6e", 0.0055);
+scene.fog = new THREE.FogExp2("#3a2030", 0.006);
 
 const camera = new THREE.PerspectiveCamera(46, innerWidth / innerHeight, 0.1, 800);
 camera.position.set(0, 5.2, 30);
@@ -65,15 +65,24 @@ const skyMat = new THREE.ShaderMaterial({
       float h = clamp(vDir.y, 0.0, 1.0);
       // gentle breathing of the gradient so the sunset feels alive but never advances
       float breathe = 0.03 * sin(uTime * 0.05) + 0.02 * uEnergy;
-      vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.18 + breathe, h));
-      col = mix(col, uHigh, smoothstep(0.14, 0.45, h));
-      col = mix(col, uZenith, smoothstep(0.38, 0.85, h));
-      // sun disc + bloom halo
+      vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.17 + breathe, h));
+      col = mix(col, uHigh, smoothstep(0.11, 0.38, h));
+      col = mix(col, uZenith, smoothstep(0.28, 0.8, h));
+      // ember sun: diffuse luminous core, long velvety falloff — no hard disc
       float d = distance(normalize(vDir), uSunDir);
-      col += uSun * (smoothstep(0.055, 0.035, d) * 1.6 + exp(-d * 5.5) * 0.55);
-      // faint long horizontal cloud bands
+      float ember = exp(-d * 26.0) * 0.8 + exp(-d * 8.0) * 0.42 + exp(-d * 3.0) * 0.13;
+      col += uSun * ember;
+      // heavy atmospheric haze hugging the horizon
+      vec3 haze = mix(uHorizon, uSun, 0.3);
+      col = mix(col, haze, smoothstep(0.14, 0.0, h) * 0.45);
+      // faint long horizontal cloud bands, sunk deep
       float bands = sin(vDir.y * 60.0 + sin(vDir.x * 4.0) * 1.5) * 0.5 + 0.5;
-      col += vec3(1.0, 0.62, 0.45) * bands * 0.05 * smoothstep(0.3, 0.05, h) * smoothstep(0.0, 0.04, h);
+      col += vec3(0.45, 0.18, 0.12) * bands * 0.03 * smoothstep(0.3, 0.05, h) * smoothstep(0.0, 0.04, h);
+      // values sink at the lateral frame edges
+      col *= 1.0 - 0.3 * smoothstep(0.3, 1.0, abs(normalize(vDir).x));
+      // screen-space dither so the gradients stay band-free
+      float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      col += (grain - 0.5) * (3.0 / 255.0);
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -84,9 +93,10 @@ scene.add(new THREE.Mesh(new THREE.SphereGeometry(400, 48, 32), skyMat));
 const seaMat = new THREE.ShaderMaterial({
   uniforms: {
     uTime: { value: 0 },
-    uDeep: { value: new THREE.Color("#3d2360") },
-    uShallow: { value: new THREE.Color("#9c4d74") },
-    uGlitter: { value: new THREE.Color("#ffc890") },
+    uDeep: { value: new THREE.Color("#0e2230") },
+    uShallow: { value: new THREE.Color("#396b74") },
+    uGlitter: { value: new THREE.Color("#e08a4f") },
+    uHaze: { value: new THREE.Color("#d9764a") },
     uEnergy: { value: 0.5 },
   },
   vertexShader: /* glsl */ `
@@ -103,7 +113,7 @@ const seaMat = new THREE.ShaderMaterial({
   `,
   fragmentShader: /* glsl */ `
     uniform float uTime, uEnergy;
-    uniform vec3 uDeep, uShallow, uGlitter;
+    uniform vec3 uDeep, uShallow, uGlitter, uHaze;
     varying vec2 vUv;
     varying vec3 vPos;
     void main() {
@@ -113,7 +123,12 @@ const seaMat = new THREE.ShaderMaterial({
       float path = exp(-pow((vUv.x - 0.42) * (7.0 - toHorizon * 4.5), 2.0));
       float sparkle = sin(vPos.x * 8.0 + uTime * 2.2) * sin(vPos.y * 13.0 - uTime * 1.7);
       sparkle = smoothstep(0.55, 1.0, sparkle) * (0.6 + uEnergy * 0.8);
-      col += uGlitter * path * (0.22 + sparkle * 0.9) * (0.35 + toHorizon);
+      col += uGlitter * path * (0.14 + sparkle * 0.55) * (0.25 + toHorizon * 0.85);
+      // sea dissolves into the horizon haze
+      col = mix(col, uHaze, smoothstep(0.8, 1.0, vUv.y) * 0.4);
+      // dither against banding
+      float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      col += (grain - 0.5) * (3.0 / 255.0);
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -124,11 +139,11 @@ sea.position.set(0, -0.4, -140);
 scene.add(sea);
 
 // --- light -----------------------------------------------------------------
-scene.add(new THREE.HemisphereLight("#ffb38a", "#341c52", 0.85));
-const sunLight = new THREE.DirectionalLight("#ff9a62", 2.2);
+scene.add(new THREE.HemisphereLight("#c06a48", "#171028", 0.6));
+const sunLight = new THREE.DirectionalLight("#d65f33", 1.5);
 sunLight.position.copy(SUN_DIR).multiplyScalar(100);
 scene.add(sunLight);
-const lampGlow = new THREE.PointLight("#ffb86b", 14, 40, 1.8);
+const lampGlow = new THREE.PointLight("#ff8f45", 6, 40, 1.8);
 lampGlow.position.set(0, 5.5, 14);
 scene.add(lampGlow);
 
@@ -136,19 +151,19 @@ scene.add(lampGlow);
 const terrace = new THREE.Group();
 scene.add(terrace);
 
-const deckMat = new THREE.MeshStandardMaterial({ color: "#4a2b4e", roughness: 0.9 });
+const deckMat = new THREE.MeshStandardMaterial({ color: "#160d1c", roughness: 0.9 });
 const deck = new THREE.Mesh(new THREE.BoxGeometry(46, 1.2, 26), deckMat);
 deck.position.set(0, -0.6, 14);
 terrace.add(deck);
 
-const wallMat = new THREE.MeshStandardMaterial({ color: "#5c3358", roughness: 0.85 });
+const wallMat = new THREE.MeshStandardMaterial({ color: "#1d1126", roughness: 0.85 });
 const wall = new THREE.Mesh(new THREE.BoxGeometry(46, 1.1, 0.7), wallMat);
 wall.position.set(0, 0.55, 1.6);
 terrace.add(wall);
 
 // tables: low cylinders with a candle glow
-const tableMat = new THREE.MeshStandardMaterial({ color: "#3a2142", roughness: 0.7 });
-const candleMat = new THREE.MeshBasicMaterial({ color: "#ffd9a0" });
+const tableMat = new THREE.MeshStandardMaterial({ color: "#120a18", roughness: 0.7 });
+const candleMat = new THREE.MeshBasicMaterial({ color: "#ff9d4f" });
 const tableSpots = [
   [-14, 8], [-8, 12], [-15, 16], [8, 9], [14, 13], [9, 17], [-3, 18],
 ];
@@ -163,7 +178,7 @@ for (const [x, z] of tableSpots) {
 }
 
 // --- people: soft capsule patrons -----------------------------------------
-const PALETTE = ["#ffd9a0", "#ff8a5c", "#e3719c", "#9b6bd6", "#79c9c2", "#f3ead9"];
+const PALETTE = ["#2e1822", "#241526", "#39201d", "#2a1a30", "#1f1826", "#34202a"];
 const people = [];
 function person(x, z, { dancer = false, scale = 1 } = {}) {
   const g = new THREE.Group();
@@ -175,7 +190,7 @@ function person(x, z, { dancer = false, scale = 1 } = {}) {
   body.position.y = 1.05 * scale;
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.3 * scale, 14, 14),
-    new THREE.MeshStandardMaterial({ color: "#5a3a3f", roughness: 0.6 })
+    new THREE.MeshStandardMaterial({ color: "#160d14", roughness: 0.6 })
   );
   head.position.y = 2.1 * scale;
   g.add(body, head);
@@ -198,24 +213,24 @@ for (let i = 0; i < 6; i++) {
 const booth = new THREE.Group();
 const desk = new THREE.Mesh(
   new THREE.BoxGeometry(4.6, 1.25, 1.4),
-  new THREE.MeshStandardMaterial({ color: "#2c1838", roughness: 0.5, metalness: 0.2 })
+  new THREE.MeshStandardMaterial({ color: "#100a16", roughness: 0.5, metalness: 0.2 })
 );
 desk.position.y = 0.9;
 const deskGlow = new THREE.Mesh(
   new THREE.BoxGeometry(4.7, 0.08, 1.5),
-  new THREE.MeshBasicMaterial({ color: "#ff8a5c" })
+  new THREE.MeshBasicMaterial({ color: "#b34a28" })
 );
 deskGlow.position.y = 1.56;
 booth.add(desk, deskGlow);
 const dj = new THREE.Group();
 const djBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.45, 1.2, 6, 14),
-  new THREE.MeshStandardMaterial({ color: "#241340", roughness: 0.6 })
+  new THREE.MeshStandardMaterial({ color: "#120b1c", roughness: 0.6 })
 );
 djBody.position.y = 1.15;
 const djHead = new THREE.Mesh(
   new THREE.SphereGeometry(0.32, 14, 14),
-  new THREE.MeshStandardMaterial({ color: "#5a3a3f", roughness: 0.6 })
+  new THREE.MeshStandardMaterial({ color: "#160d14", roughness: 0.6 })
 );
 djHead.position.y = 2.25;
 dj.add(djBody, djHead);
@@ -227,11 +242,11 @@ terrace.add(booth);
 
 // --- string lights ----------------------------------------------------------
 const bulbs = [];
-const bulbMat = new THREE.MeshBasicMaterial({ color: "#ffc890" });
+const bulbMat = new THREE.MeshBasicMaterial({ color: "#ff9d4f" });
 function stringLights(x1, x2, z, y, sag, n = 14) {
   for (let i = 0; i <= n; i++) {
     const t = i / n;
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), bulbMat.clone());
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), bulbMat.clone());
     bulb.position.set(
       x1 + (x2 - x1) * t,
       y - Math.sin(t * Math.PI) * sag,
@@ -246,7 +261,7 @@ stringLights(-18, 18, 11, 6.6, 1.3);
 stringLights(-16, 16, 19, 6.3, 1.0);
 
 // poles
-const poleMat = new THREE.MeshStandardMaterial({ color: "#2c1838", roughness: 0.8 });
+const poleMat = new THREE.MeshStandardMaterial({ color: "#100a16", roughness: 0.8 });
 for (const [x, z] of [[-20, 3.2], [20, 3.2], [-18, 11], [18, 11], [-16, 19], [16, 19]]) {
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 6.6, 8), poleMat);
   pole.position.set(x, 3.0, z);
@@ -256,12 +271,12 @@ for (const [x, z] of [[-20, 3.2], [20, 3.2], [-18, 11], [18, 11], [-16, 19], [16
 // --- palms (silhouettes at the edges) ----------------------------------------
 function palm(x, z, h = 9, lean = 0.12) {
   const g = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: "#2a1535", roughness: 0.9 });
+  const trunkMat = new THREE.MeshStandardMaterial({ color: "#0e0813", roughness: 0.9 });
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.32, h, 8), trunkMat);
   trunk.position.y = h / 2;
   trunk.rotation.z = lean;
   g.add(trunk);
-  const frondMat = new THREE.MeshStandardMaterial({ color: "#33194a", roughness: 0.9, side: THREE.DoubleSide });
+  const frondMat = new THREE.MeshStandardMaterial({ color: "#110a18", roughness: 0.9, side: THREE.DoubleSide });
   for (let i = 0; i < 7; i++) {
     const frond = new THREE.Mesh(new THREE.ConeGeometry(0.55, 4.2, 4), frondMat);
     frond.position.set(Math.sin(lean) * h, h - 0.2, 0);
@@ -375,9 +390,9 @@ function tick() {
 
   for (const b of bulbs) {
     const k = 0.75 + 0.25 * Math.sin(t * 2.4 + b.phase);
-    b.m.material.color.setRGB(1.0 * k, 0.78 * k, 0.56 * k);
+    b.m.material.color.setRGB(0.88 * k, 0.44 * k, 0.16 * k);
   }
-  lampGlow.intensity = 12 + Math.sin(t * 2.0) * 1.5 + energy * 5;
+  lampGlow.intensity = 5 + Math.sin(t * 2.0) * 0.8 + energy * 2;
 
   // slow camera drift — a guest leaning back in their chair
   camera.position.x = Math.sin(t * 0.05) * 2.2 * MOTION + lean.x * 1.1 * MOTION;

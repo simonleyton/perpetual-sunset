@@ -104,8 +104,8 @@ body {
   display: grid;
   place-items: center;
   background:
-    radial-gradient(120% 90% at 50% 110%, rgba(255, 122, 84, 0.55), transparent 60%),
-    linear-gradient(180deg, #1c0f33 0%, #45204f 52%, #b1486b 78%, #ff7a54 100%);
+    radial-gradient(120% 90% at 50% 110%, rgba(228, 110, 62, 0.5), transparent 62%),
+    linear-gradient(180deg, #07060f 0%, #241636 48%, #6e3046 76%, #c2542f 100%);
   transition: opacity 1.8s ease, visibility 1.8s;
 }
 .gate.open { opacity: 0; visibility: hidden; }
