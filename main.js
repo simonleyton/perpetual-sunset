@@ -213,22 +213,58 @@ const danceGlow = new THREE.PointLight("#ff9a50", 0, 30, 1.9);
 danceGlow.position.set(-2, 4.2, 5);
 scene.add(danceGlow);
 
+// --- silhouette treatment: darkness with color in it ---------------------------
+// Müller rules: rim from the sky, cool bounce in the undersides, no clipped
+// black anywhere. Silhouettes stay silhouettes — the dark just breathes.
+const SIL = {
+  rim: { value: new THREE.Color("#ff9a5e") },
+  cool: { value: new THREE.Color("#241a3e") },
+  lift: { value: new THREE.Color("#0d0712") },
+  rimI: { value: 0.3 },
+};
+function silhouetteMat(hex, roughness, extra = {}) {
+  const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
+  m.onBeforeCompile = (s) => {
+    s.uniforms.uRimC = SIL.rim;
+    s.uniforms.uCoolC = SIL.cool;
+    s.uniforms.uLiftC = SIL.lift;
+    s.uniforms.uRimI = SIL.rimI;
+    s.fragmentShader = s.fragmentShader.replace(
+      "#include <common>",
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform float uRimI;\n#include <common>"
+    ).replace(
+      "#include <opaque_fragment>",
+      /* glsl */ `
+      // a thin warm sliver along the upward curves, as if lit by the sky
+      float rimNdV = pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 2.6);
+      float topness = saturate(geometryNormal.y * 0.8 + 0.2);
+      outgoingLight += uRimC * rimNdV * topness * uRimI;
+      // shadow is a different color of light: plum bounce fills the undersides
+      outgoingLight += uCoolC * (0.55 - 0.55 * geometryNormal.y) * 0.05;
+      // lifted black point: air in the shadows
+      outgoingLight = max(outgoingLight, uLiftC);
+      #include <opaque_fragment>`
+    );
+  };
+  return m;
+}
+
 // --- terrace ---------------------------------------------------------------
 const terrace = new THREE.Group();
 scene.add(terrace);
 
-const deckMat = new THREE.MeshStandardMaterial({ color: "#160d1c", roughness: 0.9 });
+const deckMat = silhouetteMat("#160d1c", 0.9);
 const deck = new THREE.Mesh(new THREE.BoxGeometry(46, 1.2, 26), deckMat);
 deck.position.set(0, -0.6, 14);
 terrace.add(deck);
 
-const wallMat = new THREE.MeshStandardMaterial({ color: "#1d1126", roughness: 0.85 });
+const wallMat = silhouetteMat("#1d1126", 0.85);
 const wall = new THREE.Mesh(new THREE.BoxGeometry(46, 1.1, 0.7), wallMat);
 wall.position.set(0, 0.55, 1.6);
 terrace.add(wall);
 
 // tables: low cylinders with a candle glow
-const tableMat = new THREE.MeshStandardMaterial({ color: "#120a18", roughness: 0.7 });
+const tableMat = silhouetteMat("#120a18", 0.7);
 const candleMat = new THREE.MeshBasicMaterial({ color: "#ff9d4f" });
 const tableSpots = [
   [-14, 8], [-8, 12], [-15, 16], [8, 9], [14, 13], [9, 17], [-3, 18],
@@ -243,6 +279,15 @@ for (const [x, z] of tableSpots) {
   terrace.add(top, stem, candle);
 }
 
+// two candles actually cast light — small warm pools, the eye's resting points
+const practicals = [];
+for (const [x, z] of [[-3, 18], [8, 9]]) {
+  const p = new THREE.PointLight("#ffac5e", 1.1, 6.5, 2);
+  p.position.set(x, 1.55, z);
+  terrace.add(p);
+  practicals.push({ p, phase: x });
+}
+
 // --- people: soft capsule patrons -----------------------------------------
 const PALETTE = ["#2e1822", "#241526", "#39201d", "#2a1a30", "#1f1826", "#34202a"];
 const people = [];
@@ -251,12 +296,12 @@ function person(x, z, { dancer = false, scale = 1 } = {}) {
   const tone = PALETTE[Math.floor(Math.random() * PALETTE.length)];
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.42 * scale, 1.15 * scale, 6, 14),
-    new THREE.MeshStandardMaterial({ color: tone, roughness: 0.65 })
+    silhouetteMat(tone, 0.65)
   );
   body.position.y = 1.05 * scale;
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.3 * scale, 14, 14),
-    new THREE.MeshStandardMaterial({ color: "#160d14", roughness: 0.6 })
+    silhouetteMat("#160d14", 0.6)
   );
   head.position.y = 2.1 * scale;
   g.add(body, head);
@@ -286,12 +331,12 @@ function makeWalker({ tint, scale = 0.8, slim = false }) {
   const g = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.CapsuleGeometry((slim ? 0.34 : 0.42) * scale, 1.2 * scale, 6, 14),
-    new THREE.MeshStandardMaterial({ color: tint, roughness: 0.65 })
+    silhouetteMat(tint, 0.65)
   );
   body.position.y = 1.08 * scale;
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.29 * scale, 14, 14),
-    new THREE.MeshStandardMaterial({ color: "#3d2a30", roughness: 0.6 })
+    silhouetteMat("#3d2a30", 0.6)
   );
   head.position.y = 2.12 * scale;
   g.add(body, head);
@@ -355,7 +400,7 @@ function walkerSetWalk(w, t, from, to) {
 const booth = new THREE.Group();
 const desk = new THREE.Mesh(
   new THREE.BoxGeometry(4.6, 1.25, 1.4),
-  new THREE.MeshStandardMaterial({ color: "#100a16", roughness: 0.5, metalness: 0.2 })
+  silhouetteMat("#100a16", 0.5, { metalness: 0.2 })
 );
 desk.position.y = 0.9;
 const deskGlow = new THREE.Mesh(
@@ -367,12 +412,12 @@ booth.add(desk, deskGlow);
 const dj = new THREE.Group();
 const djBody = new THREE.Mesh(
   new THREE.CapsuleGeometry(0.45, 1.2, 6, 14),
-  new THREE.MeshStandardMaterial({ color: "#120b1c", roughness: 0.6 })
+  silhouetteMat("#120b1c", 0.6)
 );
 djBody.position.y = 1.15;
 const djHead = new THREE.Mesh(
   new THREE.SphereGeometry(0.32, 14, 14),
-  new THREE.MeshStandardMaterial({ color: "#160d14", roughness: 0.6 })
+  silhouetteMat("#160d14", 0.6)
 );
 djHead.position.y = 2.25;
 dj.add(djBody, djHead);
@@ -403,7 +448,7 @@ stringLights(-18, 18, 11, 6.6, 1.3);
 stringLights(-16, 16, 19, 6.3, 1.0);
 
 // poles
-const poleMat = new THREE.MeshStandardMaterial({ color: "#100a16", roughness: 0.8 });
+const poleMat = silhouetteMat("#100a16", 0.8);
 for (const [x, z] of [[-20, 3.2], [20, 3.2], [-18, 11], [18, 11], [-16, 19], [16, 19]]) {
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 6.6, 8), poleMat);
   pole.position.set(x, 3.0, z);
@@ -413,12 +458,12 @@ for (const [x, z] of [[-20, 3.2], [20, 3.2], [-18, 11], [18, 11], [-16, 19], [16
 // --- palms (silhouettes at the edges) ----------------------------------------
 function palm(x, z, h = 9, lean = 0.12) {
   const g = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: "#0e0813", roughness: 0.9 });
+  const trunkMat = silhouetteMat("#0e0813", 0.9);
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.32, h, 8), trunkMat);
   trunk.position.y = h / 2;
   trunk.rotation.z = lean;
   g.add(trunk);
-  const frondMat = new THREE.MeshStandardMaterial({ color: "#110a18", roughness: 0.9, side: THREE.DoubleSide });
+  const frondMat = silhouetteMat("#110a18", 0.9, { side: THREE.DoubleSide });
   for (let i = 0; i < 7; i++) {
     const frond = new THREE.Mesh(new THREE.ConeGeometry(0.55, 4.2, 4), frondMat);
     frond.position.set(Math.sin(lean) * h, h - 0.2, 0);
@@ -433,7 +478,7 @@ palm(-24, 5, 10, 0.16);
 palm(25, 11, 8.5, -0.1);
 
 // olive trees: low gnarled trunks, soft round canopies
-const oliveMat = new THREE.MeshStandardMaterial({ color: "#1c1426", roughness: 0.95 });
+const oliveMat = silhouetteMat("#1c1426", 0.95);
 function olive(x, z, s = 1) {
   const g = new THREE.Group();
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.4, 2.4, 7), oliveMat);
@@ -491,7 +536,7 @@ agave(17.5, 2.8, 1.1);
 
 // --- the cat (every Ibiza terrace has one) ------------------------------------
 const cat = new THREE.Group();
-const catMat = new THREE.MeshStandardMaterial({ color: "#0b0710", roughness: 0.9 });
+const catMat = silhouetteMat("#0b0710", 0.9);
 const catBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.22, 4, 8), catMat);
 catBody.rotation.x = 0.5;
 catBody.position.y = 0.2;
@@ -831,6 +876,12 @@ function tick() {
     b.m.material.color.setRGB(0.88 * k, 0.44 * k, 0.16 * k);
   }
   candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(0.72 + 0.45 * night);
+  for (const pr of practicals)
+    pr.p.intensity = (0.8 + 0.6 * night) + Math.sin(t * 1.7 + pr.phase) * 0.1;
+  // silhouette treatment follows the sky: rim from the sun, fill from the zenith
+  SIL.rim.value.copy(paletteAt("sun", alt)).multiplyScalar(0.5);
+  SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15);
+  SIL.rimI.value = 0.16 + 0.26 * alt;
   lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
   danceGlow.intensity = night * (5.5 + energy * 2.5);
 
