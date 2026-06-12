@@ -1037,9 +1037,9 @@ const PELICAN_SECONDS = 34;
   island(112, -240, 55, 4.5); // a long flat island to the east
 }
 
-// --- the speedboat: a quick stitch across the bay -------------------------------
-const speedboat = new THREE.Group();
-{
+// --- the speedboats: quick stitches across the bay, independent clocks ----------
+function makeSpeedboat(scale = 1) {
+  const g = new THREE.Group();
   const mat = new THREE.MeshBasicMaterial({ color: "#140e1c", fog: false });
   const hull = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.32, 0.7), mat);
   hull.position.y = 0.16;
@@ -1057,12 +1057,16 @@ const speedboat = new THREE.Group();
   );
   wake.rotation.x = -Math.PI / 2;
   wake.position.set(-4.6, 0.02, 0);
-  speedboat.add(hull, bow, cabin, wake);
-  speedboat.visible = false;
-  scene.add(speedboat);
+  g.add(hull, bow, cabin, wake);
+  g.scale.setScalar(scale);
+  g.visible = false;
+  scene.add(g);
+  return g;
 }
-let speedboatAt = 70, speedboatT = -1, speedboatDir = 1;
-const SPEEDBOAT_SECONDS = 22;
+const speedboats = [
+  { g: makeSpeedboat(1), z: -92, dur: 22, at: 70, t0: -1, dir: 1, gapBase: 210, gapRand: 160 },
+  { g: makeSpeedboat(0.85), z: -76, dur: 27, at: 150, t0: -1, dir: 1, gapBase: 280, gapRand: 220 },
+];
 
 // --- the boardwalk: the world passing in front of the cafe ----------------------
 const boardwalk = new THREE.Mesh(
@@ -1220,10 +1224,14 @@ function initWidget() {
   widget.ready
     .then(async () => {
       widgetReady = true;
+      attemptAutoplay();
       const name = await widget.getCurrentKey?.().catch(() => null);
       setNowPlaying(name || MIX_FEED);
       widget.events.progress.on((pos) => { position = pos; });
-      widget.events.play.on(() => setLive(true));
+      widget.events.play.on(() => {
+        setLive(true);
+        window.__psAutoplayed?.(); // any successful start clears the invitations
+      });
       widget.events.pause.on(() => setLive(false));
     })
     .catch(() => {});
@@ -1232,6 +1240,18 @@ function initWidget() {
 iframe.addEventListener("load", initWidget);
 document.addEventListener("DOMContentLoaded", initWidget);
 window.addEventListener("load", initWidget);
+
+// try to start the set the moment the widget is ready. Browsers only permit
+// un-gestured audio when they trust the site (prior engagement, settings);
+// where it is blocked, this fails silently and the veil/tap flow stands.
+async function attemptAutoplay() {
+  if (window.__psAudioStarted || !widgetReady) return;
+  try {
+    await widget.play(); // success is confirmed by the play event
+  } catch {
+    /* blocked — the gesture flow takes it from here */
+  }
+}
 
 // play, robustly: wait for readiness, then retry through transient errors.
 // Never poke a half-initialized player — that is what threw playback errors.
@@ -1284,9 +1304,20 @@ const pillEl = document.getElementById("sound-pill");
 const RETURNING = localStorage.getItem("ps_v") === "1";
 let audioStarted = false;
 
+window.__psAutoplayed = () => {
+  // the browser let the set start on its own: clear the invitations
+  if (audioStarted) return;
+  audioStarted = true;
+  window.__psAudioStarted = true;
+  gateEl?.classList.add("open");
+  if (pillEl) pillEl.hidden = true;
+  localStorage.setItem("ps_v", "1");
+};
+
 function startAudio() {
   if (audioStarted) return;
   audioStarted = true;
+  window.__psAudioStarted = true;
   playWhenReady();
   gateEl?.classList.add("open");
   pillEl.hidden = true;
@@ -1371,6 +1402,9 @@ const SHOTS = [
   { // inside the booth — over the DJ's shoulder, facing the room
     pos: new THREE.Vector3(-1.5, 3.1, 0.2), look: new THREE.Vector3(-1.5, 1.7, 16),
     drift: 0.25, bob: 0.05 },
+  { // the coastline — high on the east end, looking along the shore and bay
+    pos: new THREE.Vector3(26, 6.5, 8), look: new THREE.Vector3(-40, -1.5, -25),
+    drift: 1.2, bob: 0.18 },
 ];
 const SHOT_LOCK = parseInt(PARAMS.get("shot"), 10);
 
@@ -1743,22 +1777,24 @@ function tick() {
     }
   }
 
-  // the speedboat: fast, glamorous, gone
-  if (speedboatT < 0 && t > speedboatAt) {
-    speedboatT = t;
-    speedboatDir = Math.random() < 0.5 ? 1 : -1;
-    speedboat.rotation.y = speedboatDir > 0 ? 0 : Math.PI;
-    speedboat.visible = true;
-  }
-  if (speedboatT >= 0) {
-    const k = (t - speedboatT) / SPEEDBOAT_SECONDS;
-    if (k >= 1) {
-      speedboatT = -1;
-      speedboatAt = t + 210 + Math.random() * 160;
-      speedboat.visible = false;
-    } else {
-      speedboat.position.set(speedboatDir * (k * 460 - 230), -0.42 + Math.sin(t * 2.6) * 0.05, -92);
-      speedboat.rotation.z = Math.sin(t * 2.6) * 0.015;
+  // the speedboats: fast, glamorous, gone
+  for (const b of speedboats) {
+    if (b.t0 < 0 && t > b.at) {
+      b.t0 = t;
+      b.dir = Math.random() < 0.5 ? 1 : -1;
+      b.g.rotation.y = b.dir > 0 ? 0 : Math.PI;
+      b.g.visible = true;
+    }
+    if (b.t0 >= 0) {
+      const k = (t - b.t0) / b.dur;
+      if (k >= 1) {
+        b.t0 = -1;
+        b.at = t + b.gapBase + Math.random() * b.gapRand;
+        b.g.visible = false;
+      } else {
+        b.g.position.set(b.dir * (k * 460 - 230), -0.42 + Math.sin(t * 2.6 + b.z) * 0.05, b.z);
+        b.g.rotation.z = Math.sin(t * 2.6 + b.z) * 0.015;
+      }
     }
   }
 
