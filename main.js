@@ -1174,7 +1174,7 @@ const sunPath = [];
       m, f,
       baseO: Math.max(0.05, 0.42 - 0.34 * Math.pow(f, 0.75)) * (0.5 + Math.random() * 0.5),
       phase: Math.random() * Math.PI * 2,
-      speed: 0.7 + Math.random() * 1.4,
+      speed: (Math.PI * 2) / (3 + Math.random() * 4), // one breath every 3-7s
       bx: m.position.x,
     });
     z += (2.2 + 7 * f) * (0.55 + Math.random() * 1.1); // irregular gaps, growing nearer
@@ -1887,12 +1887,15 @@ function tick() {
     }
   }
 
-  // the sun path: alive only while the sun is up, dissolving toward the shore
+  // the sun path: alive only while the sun is up, dissolving toward the shore.
+  // Each glint breathes on its own slow clock — opacity eases between 72% and
+  // 100% of its base (never above the ceiling, never to nothing), drifting a
+  // hair sideways, asynchronously. Barely registered, just not frozen.
   const sunUp = THREE.MathUtils.smoothstep(alt, 0.32, 0.52);
   for (const sp of sunPath) {
-    const tw = 0.55 + 0.45 * Math.sin(t * sp.speed + sp.phase);
-    sp.m.material.opacity = sp.baseO * tw * sunUp;
-    sp.m.position.x = sp.bx + Math.sin(t * sp.speed * 0.5 + sp.phase) * 0.25;
+    const breath = 0.86 + 0.14 * Math.sin(t * sp.speed + sp.phase);
+    sp.m.material.opacity = sp.baseO * breath * sunUp;
+    sp.m.position.x = sp.bx + Math.sin(t * sp.speed * 0.45 + sp.phase) * 0.2;
   }
 
   // the shore breathes
