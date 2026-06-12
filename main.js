@@ -488,6 +488,7 @@ function pegMat(hex) {
 function buildPeg({
   scale = 0.82, tone, slim = false, lean = 0,
   accent = null, accessory = null, nose = false,
+  bun = false, skirt = false,
 } = {}) {
   const s = scale;
   const g = new THREE.Group();
@@ -516,6 +517,16 @@ function buildPeg({
     const n = new THREE.Mesh(new THREE.SphereGeometry(0.05 * s, 8, 8), head.material);
     n.position.set(0, headY, headR * 0.95);
     g.add(n);
+  }
+  if (bun) {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.45, 10, 10), head.material);
+    b.position.set(0, headY + headR * 0.35, -headR * 0.75);
+    g.add(b);
+  }
+  if (skirt) {
+    const sk = new THREE.Mesh(new THREE.ConeGeometry(bodyR * 1.4, 0.62 * s, 14), pegMat(bodyTone));
+    sk.position.y = 0.31 * s;
+    g.add(sk);
   }
   if (accessory) {
     const aMat = pegMat(bodyTone);
@@ -610,8 +621,8 @@ for (const c of CAST) {
 
 // --- walkers: waiters and passersby, never in a hurry -------------------------
 const walkers = [];
-function makeWalker({ tint, scale = 0.8, slim = false, accessory = null }) {
-  const g = buildPeg({ scale, tone: tint, slim, accessory });
+function makeWalker({ tint, scale = 0.8, slim = false, accessory = null, bun = false, skirt = false }) {
+  const g = buildPeg({ scale, tone: tint, slim, accessory, bun, skirt });
   terrace.add(g);
   return g;
 }
@@ -649,7 +660,7 @@ for (let i = 0; i < 3; i++) {
 // terrace, a shade lighter than everyone, they come to the rail just to watch.
 // Staggered so the rail occasionally gets quiet company.
 const FLANEURS = [
-  { tint: "#7d6a59", scale: 0.96, speed: 0.72, first: 12, accessory: "hatFlat" },
+  { tint: "#7d6a59", scale: 0.96, speed: 0.72, first: 1, accessory: "hatFlat" },
   { tint: "#6c6072", scale: 0.92, speed: 0.66, first: 75 },
   { tint: "#84705f", scale: 0.99, speed: 0.78, first: 150 },
 ];
@@ -1078,6 +1089,19 @@ for (let i = 0; i < 4; i++) {
     phase: Math.random() * Math.PI * 2,
     persona: i === 0 ? "flaneur" : i === 3 ? "dancer" : "passer",
     pauseAt: 0, paused: false,
+  });
+}
+// the flaneuse: already mid-stroll along the boardwalk when the page lands —
+// a bun and a skirt in the silhouette, pausing to face the sea like the others
+{
+  const g = buildPeg({ scale: 0.85, slim: true, tone: "#6e5a52", bun: true, skirt: true });
+  terrace.add(g);
+  const dur = 64 / 0.62;
+  g.rotation.y = -Math.PI / 2;
+  bwWalkers.push({
+    g, state: "cross", until: 0, t0: -(0.32 * dur), dur, dir: -1, z: -4.2, k0: 0,
+    speed: 0.62, phase: Math.random() * Math.PI * 2,
+    persona: "flaneuse", pauseAt: 0.52, paused: false,
   });
 }
 const BW_Y = -0.175; // standing on the boardwalk
@@ -1762,7 +1786,7 @@ function tick() {
         w.state = "pause";
         w.paused = true;
         w.k0 = k;
-        w.until = t + (w.persona === "flaneur" ? 14 + Math.random() * 14 : 7 + Math.random() * 5);
+        w.until = t + (w.persona === "dancer" ? 7 + Math.random() * 5 : 14 + Math.random() * 14);
         w.g.rotation.y = Math.PI; // face the sea
         w.g.rotation.z = 0;
       }
