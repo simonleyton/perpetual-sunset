@@ -21,9 +21,9 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
 const CYCLE_MINUTES = 16;
-// staged arrival: the set starts about an hour and a half before sundown —
-// the top of the arc, late-afternoon light, the whole evening ahead
-const CYCLE_OFFSET = (Math.acos(2 * 0.995 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+// staged arrival: every session opens on the true sunset — sun visible and
+// warm above the water, salmon sky under smoky violet, already descending
+const CYCLE_OFFSET = (Math.acos(2 * 0.9 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 
 // --- the twilight overture -------------------------------------------------------
 // The opening note: a quiet Pinto twilight (references/pinto_twilight.png),
@@ -46,8 +46,8 @@ const TWILIGHT = {
   rim: "#c9a099",     // figure rim during twilight
   cool: "#5a6a78",    // figure shadow fill during twilight
   saturation: 1.0,    // global multiplier on all stops above
-  HOLD: 20,           // seconds of pure twilight
-  DRIFT: 35,          // seconds of dissolve into the existing cycle
+  HOLD: 0,            // seconds of pure twilight (0 = overture off)
+  DRIFT: 0,           // seconds of dissolve into the existing cycle
 };
 const TWI = {};
 {
@@ -1828,7 +1828,7 @@ function tick() {
   danceGlow.intensity = night * (3.2 + energy * 1.8);
 
   // the twilight overture: hold the opening note, then dissolve into the day
-  if (!Number.isFinite(PHASE_LOCK)) {
+  if (!Number.isFinite(PHASE_LOCK) && TWILIGHT.HOLD + TWILIGHT.DRIFT > 0) {
     const introW = 1 - THREE.MathUtils.smoothstep(t, TWILIGHT.HOLD, TWILIGHT.HOLD + TWILIGHT.DRIFT);
     if (introW > 0) {
       skyMat.uniforms.uZenith.value.lerp(TWI.zenith, introW);
