@@ -1144,6 +1144,43 @@ foam.rotation.x = -Math.PI / 2;
 foam.position.set(0, -0.38, -11);
 scene.add(foam);
 
+// --- the sun path: broken glints stitching the sun to the shore -----------------
+// Discrete highlights ON TOP of the dark water — never a stripe, never a grid.
+// Every width, length, offset, gap, and flicker is independently randomized.
+const sunPath = [];
+{
+  const gold = new THREE.Color("#e2b584");   // near the sun: pale desaturated gold
+  const rose = new THREE.Color("#a98387");   // mid: dusty rose
+  const indigo = new THREE.Color("#74698b"); // near the viewer: faded violet-indigo
+  let z = -232;
+  while (z < -26 && sunPath.length < 60) {
+    const f = (z + 232) / 206; // 0 = far (under the sun), 1 = near the shore
+    const cx = (z - 27) * 0.18; // the line from below the sun toward the viewer
+    const col = f < 0.5 ? gold.clone().lerp(rose, f * 2) : rose.clone().lerp(indigo, f * 2 - 1);
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(
+        (3 + 14 * f) * (0.55 + Math.random() * 0.9),  // wider as it nears
+        (0.6 + 1.6 * f) * (0.6 + Math.random() * 0.8)
+      ),
+      new THREE.MeshBasicMaterial({
+        color: col, transparent: true, opacity: 0, fog: false,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      })
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(cx + (Math.random() - 0.5) * (3 + 9 * f), -0.34, z);
+    scene.add(m);
+    sunPath.push({
+      m, f,
+      baseO: Math.max(0.05, 0.42 - 0.34 * Math.pow(f, 0.75)) * (0.5 + Math.random() * 0.5),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.7 + Math.random() * 1.4,
+      bx: m.position.x,
+    });
+    z += (2.2 + 7 * f) * (0.55 + Math.random() * 1.1); // irregular gaps, growing nearer
+  }
+}
+
 // --- raking light: long soft shadows toward the camera ------------------------
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
@@ -1848,6 +1885,14 @@ function tick() {
         w.t0 = t - w.k0 * w.dur; // resume the crossing where it left off
       }
     }
+  }
+
+  // the sun path: alive only while the sun is up, dissolving toward the shore
+  const sunUp = THREE.MathUtils.smoothstep(alt, 0.32, 0.52);
+  for (const sp of sunPath) {
+    const tw = 0.55 + 0.45 * Math.sin(t * sp.speed + sp.phase);
+    sp.m.material.opacity = sp.baseO * tw * sunUp;
+    sp.m.position.x = sp.bx + Math.sin(t * sp.speed * 0.5 + sp.phase) * 0.25;
   }
 
   // the shore breathes
