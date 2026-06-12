@@ -20,10 +20,20 @@ const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
-const CYCLE_MINUTES = 16;
+const CYCLE_MINUTES = 20;
+// the sun lingers as it nears the water: a periodic time warp that slows the
+// horizon crossing (the moment everyone watches) and repays the time at the
+// extremes, where the cosine already dwells
+const SUNSET_DWELL = 0.12;
 // staged arrival: every session opens on the true sunset — sun visible and
-// warm above the water, salmon sky under smoky violet, already descending
-const CYCLE_OFFSET = (Math.acos(2 * 0.9 - 1) / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+// warm above the water, salmon sky under smoky violet, already descending.
+// (solves the warped phase numerically so entry still lands at alt 0.9)
+const CYCLE_OFFSET = (() => {
+  const target = Math.acos(2 * 0.9 - 1);
+  let th = target;
+  for (let i = 0; i < 12; i++) th = target - SUNSET_DWELL * Math.sin(2 * th);
+  return (th / (2 * Math.PI)) * CYCLE_MINUTES * 60;
+})();
 
 // --- the twilight overture -------------------------------------------------------
 // The opening note: a quiet Pinto twilight (references/pinto_twilight.png),
@@ -1356,7 +1366,10 @@ function tick() {
   // --- the sun's pendulum: golden -> dusk -> blue hour -> back ---
   const alt = Number.isFinite(PHASE_LOCK)
     ? Math.min(1, Math.max(0, PHASE_LOCK))
-    : 0.5 + 0.5 * Math.cos(((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2);
+    : (() => {
+        const th = ((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2;
+        return 0.5 + 0.5 * Math.cos(th + SUNSET_DWELL * Math.sin(2 * th));
+      })();
   SUN_DIR.set(
     -0.18,
     THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.15 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
