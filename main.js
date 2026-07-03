@@ -25,13 +25,17 @@ const CYCLE_MINUTES = 20;
 // horizon crossing (the moment everyone watches) and repays the time at the
 // extremes, where the cosine already dwells
 const SUNSET_DWELL = 0.12;
+// and the deepest blue lingers too: a matching warp that slows the bottom of
+// the swing, paid for by an afternoon that hurries a little at the top
+// (keep 2*SUNSET_DWELL + BLUE_DWELL well under 1 or the pendulum runs backward)
+const BLUE_DWELL = 0.45;
 // staged arrival: every session opens on the true sunset — sun visible and
 // warm above the water, salmon sky under smoky violet, already descending.
 // (solves the warped phase numerically so entry still lands at alt 0.9)
 const CYCLE_OFFSET = (() => {
   const target = Math.acos(2 * 0.9 - 1);
   let th = target;
-  for (let i = 0; i < 12; i++) th = target - SUNSET_DWELL * Math.sin(2 * th);
+  for (let i = 0; i < 24; i++) th = target - SUNSET_DWELL * Math.sin(2 * th) - BLUE_DWELL * Math.sin(th);
   return (th / (2 * Math.PI)) * CYCLE_MINUTES * 60;
 })();
 
@@ -114,6 +118,18 @@ function paletteAt(key, alt) {
   if (alt < 0.8) return _c.copy(KEYS.dusk[key]).lerp(KEYS.golden[key], (alt - 0.45) / 0.35);
   if (alt < 0.93) return _c.copy(KEYS.golden[key]).lerp(KEYS.preset[key], (alt - 0.8) / 0.13);
   return _c.copy(KEYS.preset[key]).lerp(KEYS.afternoon[key], (alt - 0.93) / 0.07);
+}
+
+// two clocks: the sun keeps sinking while the sky settles into its register.
+// a smooth staircase over the palette stops — long shelves at blue, dusk and
+// golden, quick quintic crossings between. fixed points at every stop keep
+// ?phase= honest, and the quintic's flat ends leave no color kink anywhere
+const TERRACE_FLAT = 0.3; // fraction of each step held settled at either shelf
+function plateau(a) {
+  const lo = a < 0.45 ? 0 : a < 0.8 ? 0.45 : 0.8;
+  const hi = a < 0.45 ? 0.45 : a < 0.8 ? 0.8 : 1;
+  const u = THREE.MathUtils.clamp(((a - lo) / (hi - lo) - TERRACE_FLAT) / (1 - 2 * TERRACE_FLAT), 0, 1);
+  return lo + (hi - lo) * u * u * u * (u * (u * 6 - 15) + 10);
 }
 
 const renderer = new THREE.WebGLRenderer({
@@ -1463,25 +1479,27 @@ function tick() {
     ? Math.min(1, Math.max(0, PHASE_LOCK))
     : (() => {
         const th = ((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2;
-        return 0.5 + 0.5 * Math.cos(th + SUNSET_DWELL * Math.sin(2 * th));
+        return 0.5 + 0.5 * Math.cos(th + SUNSET_DWELL * Math.sin(2 * th) + BLUE_DWELL * Math.sin(th));
       })();
+  // the second clock: what the sky believes. raw alt keeps the sun honestly sinking
+  const palAlt = plateau(alt);
   SUN_DIR.set(
     -0.18,
     THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.15 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
     -1
   ).normalize();
-  skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", alt));
-  skyMat.uniforms.uMid.value.copy(paletteAt("mid", alt));
-  skyMat.uniforms.uHigh.value.copy(paletteAt("high", alt));
-  skyMat.uniforms.uZenith.value.copy(paletteAt("zenith", alt));
-  skyMat.uniforms.uSun.value.copy(paletteAt("sun", alt));
+  skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", palAlt));
+  skyMat.uniforms.uMid.value.copy(paletteAt("mid", palAlt));
+  skyMat.uniforms.uHigh.value.copy(paletteAt("high", palAlt));
+  skyMat.uniforms.uZenith.value.copy(paletteAt("zenith", palAlt));
+  skyMat.uniforms.uSun.value.copy(paletteAt("sun", palAlt));
   // ember swells as the sun touches the water, fades in the blue hour
   skyMat.uniforms.uEmber.value =
-    0.3 + 0.7 * alt + 0.35 * Math.exp(-Math.pow((alt - 0.45) / 0.18, 2));
-  seaMat.uniforms.uShallow.value.copy(paletteAt("seaShallow", alt));
-  seaMat.uniforms.uGlitter.value.copy(paletteAt("glitter", alt));
-  seaMat.uniforms.uDay.value = THREE.MathUtils.smoothstep(alt, 0.3, 0.7);
-  scene.fog.color.copy(paletteAt("fog", alt));
+    0.3 + 0.7 * palAlt + 0.35 * Math.exp(-Math.pow((palAlt - 0.45) / 0.18, 2));
+  seaMat.uniforms.uShallow.value.copy(paletteAt("seaShallow", palAlt));
+  seaMat.uniforms.uGlitter.value.copy(paletteAt("glitter", palAlt));
+  seaMat.uniforms.uDay.value = THREE.MathUtils.smoothstep(palAlt, 0.3, 0.7);
+  scene.fog.color.copy(paletteAt("fog", palAlt));
   // warm directional key from the sun — low and dead ahead, but the shadow
   // elevation is floored so the raking shadows stay long without running forever
   _shadowDir.copy(SUN_DIR);
@@ -1489,22 +1507,23 @@ function tick() {
   _shadowDir.normalize();
   sunLight.position.copy(sunLight.target.position).addScaledVector(_shadowDir, 130);
   sunLight.intensity = 0.3 + 1.9 * alt;
-  sunLight.color.copy(paletteAt("sun", alt));
-  // the café answers the dark: warm lighting breathes up as the sun sinks
-  const night = THREE.MathUtils.smoothstep(1 - alt, 0.35, 0.92);
+  sunLight.color.copy(paletteAt("sun", palAlt));
+  // the café was always lit; the cooling sky does the switching-on.
+  // how dark the world is, is a judgment about the sky — it follows palAlt
+  const night = THREE.MathUtils.smoothstep(1 - palAlt, 0.35, 0.92);
   // deepest night only — zero through golden hour and dusk, no boundary pop
-  const deepNight = THREE.MathUtils.smoothstep(1 - alt, 0.75, 0.95);
+  const deepNight = THREE.MathUtils.smoothstep(1 - palAlt, 0.75, 0.95);
   skyMat.uniforms.uNightI.value = deepNight;
   seaMat.uniforms.uNight.value = deepNight;
-  seaMat.uniforms.uHaze.value.copy(paletteAt("seaHaze", alt));
+  seaMat.uniforms.uHaze.value.copy(paletteAt("seaHaze", palAlt));
   moonLight.intensity = 0.5 * deepNight;
   scene.fog.density = 0.006 + 0.0015 * deepNight;
   for (const gl of glows)
     gl.s.material.opacity = (0.2 + 0.04 * Math.sin(t * 1.9 + gl.phase)) * deepNight;
   // ambient is cool now — the warmth lives in the key, not the bath
-  hemi.intensity = 0.2 + 0.24 * alt + 0.1 * night;
-  hemi.color.copy(paletteAt("high", alt)).multiplyScalar(1.5).lerp(_warmNight, night * 0.35);
-  starMat.opacity = Math.pow(1 - alt, 2.5) * 0.85;
+  hemi.intensity = 0.2 + 0.24 * palAlt + 0.1 * night;
+  hemi.color.copy(paletteAt("high", palAlt)).multiplyScalar(1.5).lerp(_warmNight, night * 0.35);
+  starMat.opacity = Math.pow(1 - palAlt, 2.5) * 0.85;
   skyMat.uniforms.uMoonI.value = Math.pow(night, 2.2) * 0.9;
 
   skyMat.uniforms.uTime.value = t;
@@ -1710,7 +1729,7 @@ function tick() {
   }
 
   // shooting star: only in the blue hour, brief and faint
-  if (meteorT < 0 && t > meteorAt && alt < 0.3) meteorT = t;
+  if (meteorT < 0 && t > meteorAt && palAlt < 0.3) meteorT = t;
   if (meteorT >= 0) {
     const k = (t - meteorT) / 1.4;
     if (k >= 1) {
@@ -1900,7 +1919,7 @@ function tick() {
 
   // the shore breathes
   foamMat.uniforms.uTime.value = t;
-  foamMat.uniforms.uFoam.value.set("#e8e0d2").lerp(_moonCool, night * 0.55).multiplyScalar(0.75 + 0.25 * alt);
+  foamMat.uniforms.uFoam.value.set("#e8e0d2").lerp(_moonCool, night * 0.55).multiplyScalar(0.75 + 0.25 * palAlt);
 
   for (const b of boats) {
     b.g.position.y = Math.sin(t * 0.5 + b.phase) * 0.09 * MOTION - 0.05;
@@ -1916,7 +1935,8 @@ function tick() {
   wind.x += (wind.target - wind.x) * 0.0015; // the shift takes about a minute
 
   for (const b of bulbs) {
-    const k = (0.75 + 0.25 * Math.sin(t * 2.4 + b.phase)) * (0.55 + 0.65 * night);
+    // the garland holds one warmth all day; the cooling sky is what turns it on
+    const k = (0.9 + 0.045 * Math.sin(t * 2.4 + b.phase)) * (0.88 + 0.12 * night);
     b.m.material.color.setRGB(0.88 * k, 0.44 * k, 0.16 * k);
     b.m.position.x = b.bx + Math.sin(ts * 0.8 + b.phase) * 0.07 * wind.x * MOTION;
     b.m.position.y = b.by + Math.sin(ts * 1.1 + b.phase) * 0.02 * Math.abs(wind.x) * MOTION;
@@ -1925,27 +1945,29 @@ function tick() {
     p.g.rotation.z = Math.sin(ts * 0.4 + p.phase) * 0.015 * wind.x * MOTION;
   for (const pp of pergolaPanels)
     pp.panel.rotation.z = Math.sin(ts * 0.6 + pp.phase) * 0.01 * wind.x * MOTION;
-  candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(0.72 + 0.45 * night);
+  // the candles were always lit — evening only makes them matter
+  candleMat.color.setRGB(1.0, 0.62, 0.31).multiplyScalar(1.03 + 0.14 * night);
   for (const pr of practicals)
-    pr.p.intensity = (0.7 + 0.6 * night + 0.7 * deepNight) + Math.sin(t * 1.7 + pr.phase) * 0.1;
+    pr.p.intensity = (1.78 + 0.14 * night + 0.08 * deepNight) + Math.sin(t * 1.7 + pr.phase) * 0.1;
   // silhouette treatment follows the sky: rim from the sun, fill from the zenith.
   // At deepest night, the Muller duality: warm candle rim against cool moon fill.
-  SIL.rim.value.copy(paletteAt("sun", alt)).multiplyScalar(0.5).lerp(_emberRim, 0.65 * deepNight);
-  SIL.cool.value.copy(paletteAt("high", alt)).multiplyScalar(1.15).lerp(_moonCool, 0.6 * deepNight);
+  SIL.rim.value.copy(paletteAt("sun", palAlt)).multiplyScalar(0.5).lerp(_emberRim, 0.65 * deepNight);
+  SIL.cool.value.copy(paletteAt("high", palAlt)).multiplyScalar(1.15).lerp(_moonCool, 0.6 * deepNight);
   SIL.lift.value.set("#0d0712").multiplyScalar(1 + 0.5 * deepNight);
-  SIL.rimI.value = 0.16 + 0.26 * alt + 0.18 * deepNight;
+  SIL.rimI.value = 0.16 + 0.26 * palAlt + 0.18 * deepNight;
   // peak-sun figure carve: hot sun-side rim + boosted cool fill, gated to the peak
-  SIL.peak.value = THREE.MathUtils.smoothstep(alt, 0.82, 0.95);
+  SIL.peak.value = THREE.MathUtils.smoothstep(palAlt, 0.82, 0.95);
   // dusk-only figure outline: cool mauve from the residual sky, capped low
-  const duskW = THREE.MathUtils.smoothstep(alt, 0.25, 0.4) * (1 - THREE.MathUtils.smoothstep(alt, 0.55, 0.68));
+  const duskW = THREE.MathUtils.smoothstep(palAlt, 0.25, 0.4) * (1 - THREE.MathUtils.smoothstep(palAlt, 0.55, 0.68));
   SIL.duskRim.value = 0.1 * duskW; // hard ceiling 0.15 — held under it
-  SIL.duskRimC.value.copy(paletteAt("high", alt)).lerp(_paleMauve, 0.55);
+  SIL.duskRimC.value.copy(paletteAt("high", palAlt)).lerp(_paleMauve, 0.55);
   // canopy underside edge: deep-night only, capped 0.12 — held under it
   SIL.canopy.value = 0.08 * deepNight;
-  SIL.canopyC.value.copy(paletteAt("high", alt)).lerp(_plumEdge, 0.4);
-  SIL.hot.value.copy(paletteAt("sun", alt)).lerp(_hotOrange, 0.45);
+  SIL.canopyC.value.copy(paletteAt("high", palAlt)).lerp(_plumEdge, 0.4);
+  SIL.hot.value.copy(paletteAt("sun", palAlt)).lerp(_hotOrange, 0.45);
   SIL.sunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
-  lampGlow.intensity = 3.5 + night * 7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
+  // the lamp burns the same at six as at midnight; contrast does the switching-on
+  lampGlow.intensity = 8.8 + night * 1.7 + Math.sin(t * 2.0) * 0.8 + energy * 2;
   danceGlow.intensity = night * (3.2 + energy * 1.8);
 
   // the twilight overture: hold the opening note, then dissolve into the day
