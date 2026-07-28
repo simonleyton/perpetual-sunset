@@ -2,6 +2,7 @@
   --ink: #fff7ef;
   --ink-dim: rgba(255, 247, 239, 0.62);
   --glass: rgba(24, 12, 38, 0.35);
+  --logo-w: 232px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -28,19 +29,24 @@ body {
 .hud-top { top: 0; align-items: flex-start; }
 .hud-bottom { bottom: 0; }
 
-.wordmark h1 {
-  font-family: "Marcellus", serif;
-  font-weight: 400;
-  font-size: 28px;
-  letter-spacing: 0.06em;
-  text-shadow: 0 1px 24px rgba(255, 110, 80, 0.35);
+/* --logo-w drives the badge and the tagline together, so the tagline always
+   spans the badge exactly. At 0.34em tracking the line measures ~24.3x its own
+   font-size, hence the 0.0412 factor (1 / 24.3). */
+.wordmark { width: var(--logo-w); }
+.wordmark h1 { line-height: 0; }
+.wordmark h1 img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 1px 24px rgba(255, 110, 80, 0.35));
 }
 .tagline {
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 7px;
+  font-size: calc(var(--logo-w) * 0.0412);
   font-weight: 300;
   letter-spacing: 0.34em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--ink-dim);
 }
 
@@ -110,13 +116,12 @@ body {
 .gate.open { opacity: 0; visibility: hidden; }
 
 .gate-inner { text-align: center; max-width: 440px; padding: 0 24px; }
-.gate-inner h1 {
-  font-family: "Marcellus", serif;
-  font-weight: 400;
-  font-size: 52px;
-  letter-spacing: 0.04em;
-  margin-bottom: 14px;
-  text-shadow: 0 2px 34px rgba(0, 0, 0, 0.5);
+.gate-inner h1 { line-height: 0; margin-bottom: 26px; }
+.gate-inner h1 img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 2px 34px rgba(0, 0, 0, 0.5));
 }
 .gate-inner p {
   font-weight: 300;
@@ -190,12 +195,11 @@ body {
   }
   .sound-pill svg { display: block; }
   .sound-pill .pill-label { display: none; }
-  .wordmark h1 { font-size: 20px; }
+  :root { --logo-w: 200px; }
   .clock { font-size: 16px; }
   .hud-bottom { flex-direction: column; align-items: stretch; gap: 10px; }
   .now-playing { max-width: none; justify-content: center; }
   #player-dock iframe { width: 100%; }
-  .gate-inner h1 { font-size: 36px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
