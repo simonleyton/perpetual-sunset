@@ -713,8 +713,9 @@ function buildPeg({
 // One tight knot of four (dancing), a pair at the rail, uneven tables, two
 // solitaries, one child. ~1 in 8 carries a single chalky accent; over half
 // carry nothing. Exactly one figure (the reader) faces away from the sun.
-// Nothing painted sits on the focal point by day: the booth dancer's head
-// only comes on once the sun is down.
+// Painted heads break the silhouette into two values, so by day there are
+// none: one band. The booth dancer's head comes on once the sun is down,
+// with the lights: the accents switch on with the cafe.
 const A = PEG.accents;
 const CAST = [
   // the knot
@@ -733,7 +734,7 @@ const CAST = [
   { x: -9.3, z: 11.6, scale: 0.82, lean: 0.035, accent: { zone: "band", color: A.teal }, converse: 3.5 },
   // the reader: the only one turned away from the sunset
   { x: -13.4, z: 16.6, scale: 0.78, lean: 0.025, nose: true, accessory: "book", yRot: 0.15 },
-  { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03, accent: { zone: "head", color: A.putty } },
+  { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03 },
   { x: 7.0, z: 10.6, scale: 0.78, lean: 0.04 },
   // solitary near the camera, bag slung, alone on purpose
   { x: -1.8, z: 18.4, scale: 0.82, lean: -0.045, nose: true, accessory: "bag" },
