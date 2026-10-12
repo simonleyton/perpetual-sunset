@@ -459,7 +459,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC; uniform float uCanopy; uniform vec3 uCanopyC; uniform float uDay; uniform float uAlbedoDay;\nvarying vec3 vSilWorld;\n#include <common>"
     ).replace(
       "#include <color_fragment>",
-      `#include <color_fragment>\n      diffuseColor.rgb *= mix(1.0, ${opts.floor ? "1.0 + (uAlbedoDay - 1.0) * 0.5" : "uAlbedoDay"}, uDay);`
+      `#include <color_fragment>\n      diffuseColor.rgb *= mix(1.0, ${opts.accent ? "1.0" : opts.floor ? "1.0 + (uAlbedoDay - 1.0) * 0.5" : "uAlbedoDay"}, uDay);`
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
@@ -615,6 +615,12 @@ const PEG = {
 function pegMat(hex) {
   return silhouetteMat(hex, 0.96, {}, { grain: true });
 }
+// a painted accent: already a light surface, so it holds its value in daylight
+function accentMat(hex) {
+  return silhouetteMat(hex, 0.96, {}, { grain: true, accent: true });
+}
+// accents that only come on once the sun is down: head colour follows (1 - daylight)
+const duskAccents = [];
 function buildPeg({
   scale = 0.82, tone, slim = false, lean = 0,
   accent = null, accessory = null, nose = false,
@@ -631,14 +637,16 @@ function buildPeg({
   const headY = 0.55 * s + 2 * bodyR + headR * 0.62; // overlapped: no neck
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(headR, 14, 14),
-    pegMat(accent?.zone === "head" ? accent.color : PEG.head)
+    accent?.zone === "head" ? accentMat(accent.dusk ? PEG.head : accent.color) : pegMat(PEG.head)
   );
+  if (accent?.zone === "head" && accent.dusk)
+    duskAccents.push({ m: head.material, from: new THREE.Color(PEG.head), to: new THREE.Color(accent.color) });
   head.position.y = headY;
   g.add(head);
   if (accent?.zone === "band") {
     const band = new THREE.Mesh(
       new THREE.CylinderGeometry(bodyR + 0.012, bodyR + 0.012, 0.2 * s, 14),
-      pegMat(accent.color)
+      accentMat(accent.color)
     );
     band.position.y = 0.62 * s;
     g.add(band);
@@ -705,11 +713,13 @@ function buildPeg({
 // One tight knot of four (dancing), a pair at the rail, uneven tables, two
 // solitaries, one child. ~1 in 8 carries a single chalky accent; over half
 // carry nothing. Exactly one figure (the reader) faces away from the sun.
+// Nothing painted sits on the focal point by day: the booth dancer's head
+// only comes on once the sun is down.
 const A = PEG.accents;
 const CAST = [
   // the knot
   { x: -2.6, z: 4.4, dancer: true, scale: 0.82, lean: 0.03 },
-  { x: -1.3, z: 5.3, dancer: true, scale: 0.86, lean: -0.025, accent: { zone: "head", color: A.terracotta } },
+  { x: -1.3, z: 5.3, dancer: true, scale: 0.86, lean: -0.025, accent: { zone: "head", color: A.terracotta, dusk: true } },
   { x: 0.3, z: 4.2, dancer: true, scale: 0.78, lean: 0.045 },
   { x: 1.5, z: 5.0, dancer: true, scale: 0.82, lean: -0.04, accessory: "cup" },
   // the pair at the rail, tilted toward each other, deep in it
@@ -723,7 +733,7 @@ const CAST = [
   { x: -9.3, z: 11.6, scale: 0.82, lean: 0.035, accent: { zone: "band", color: A.teal }, converse: 3.5 },
   // the reader: the only one turned away from the sunset
   { x: -13.4, z: 16.6, scale: 0.78, lean: 0.025, nose: true, accessory: "book", yRot: 0.15 },
-  { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03 },
+  { x: 9.6, z: 9.4, scale: 0.86, lean: -0.03, accent: { zone: "head", color: A.putty } },
   { x: 7.0, z: 10.6, scale: 0.78, lean: 0.04 },
   // solitary near the camera, bag slung, alone on purpose
   { x: -1.8, z: 18.4, scale: 0.82, lean: -0.045, nose: true, accessory: "bag" },
@@ -1612,6 +1622,11 @@ function tick() {
     THREE.MathUtils.lerp(-0.075, 0.165, alt) + 0.15 * THREE.MathUtils.smoothstep(alt, 0.8, 1.0),
     -1
   ).normalize();
+  {
+    const sunDeg = THREE.MathUtils.radToDeg(Math.asin(SUN_DIR.y));
+    const afterSundown = 1 - THREE.MathUtils.smoothstep(sunDeg, 1.5, 9);
+    for (const a of duskAccents) a.m.color.copy(a.from).lerp(a.to, afterSundown);
+  }
   skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", palAlt));
   skyMat.uniforms.uMid.value.copy(paletteAt("mid", palAlt));
   skyMat.uniforms.uHigh.value.copy(paletteAt("high", palAlt));
