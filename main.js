@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SUNSET_SEA_UNIFORMS, SUNSET_SEA_GLSL, sunTransmittance } from "./sunsetSea.js";
 
 // ---------------------------------------------------------------------------
 // Config — swap MIX_FEED for Simon's own set once it's on Mixcloud.
@@ -17,6 +18,8 @@ const PORTRAIT = innerHeight > innerWidth;
 const PARAMS = new URLSearchParams(location.search);
 const QUIET = PARAMS.has("quiet");
 const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
+// ?sky=velvet — the painted Velvet Ember sky and sea instead of the sunset-sea experiment
+const SKY_SEA = PARAMS.get("sky") !== "velvet";
 
 // the sun's pendulum: golden hour -> dusk -> blue hour -> back. Never full day,
 // never full night. Cosine gives the long dwell at both ends.
@@ -210,7 +213,8 @@ const skyMat = new THREE.ShaderMaterial({
     }
   `,
 });
-scene.add(new THREE.Mesh(new THREE.SphereGeometry(400, 48, 32), skyMat));
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(400, 48, 32), skyMat);
+scene.add(skyDome);
 
 // --- sea -------------------------------------------------------------------
 const seaMat = new THREE.ShaderMaterial({
@@ -266,6 +270,107 @@ const sea = new THREE.Mesh(new THREE.PlaneGeometry(600, 240, 96, 48), seaMat);
 sea.rotation.x = -Math.PI / 2;
 sea.position.set(0, -0.4, -140);
 scene.add(sea);
+
+// --- sunset-sea experiment: a computed sky and a sea that mirrors it ----------
+// one shared set of uniforms; the dome shades sky above the horizon and far sea
+// below it, the sea plane shades the near water (and keeps its depth for hulls)
+const SS = {
+  uTime: { value: 0 },
+  uSun: { value: SUN_DIR },
+  uSunTrans: { value: new THREE.Vector3() },
+  uCloudSun: { value: new THREE.Vector3() },
+  uCamH: { value: 2 },
+  uPix: { value: 0.001 },
+  uWind: { value: 3.5 },
+  uTurb: { value: 1.25 },
+  // the library's 0.45 read denser through its blocky hash; 0.85 matches that cover with the clean noise
+  uCloud: { value: parseFloat(PARAMS.get("clouds")) || 0.85 },
+  uCoast: { value: 0 }, // our own islands hold the horizon
+  uCoastAz: { value: 0 },
+  uExposure: { value: 0.3 },
+  uSunSize: { value: 2 },
+  uGlitter: { value: 1 },
+  uSeaY: { value: -0.4 },
+};
+// the atmosphere, once per frame, into a small panorama (azimuth x sqrt(elevation))
+const skyLut = new THREE.WebGLRenderTarget(512, 256, {
+  type: THREE.HalfFloatType,
+  depthBuffer: false,
+  wrapS: THREE.RepeatWrapping,
+  minFilter: THREE.LinearFilter,
+  magFilter: THREE.LinearFilter,
+  generateMipmaps: false,
+});
+SS.uSkyLut = { value: skyLut.texture };
+const lutScene = new THREE.Scene();
+const lutCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+lutScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: SS,
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+  `,
+  fragmentShader: /* glsl */ `
+    varying vec2 vUv;
+    ${SUNSET_SEA_UNIFORMS}
+    ${SUNSET_SEA_GLSL}
+    void main() {
+      float az = (vUv.x - 0.5) * 2.0 * PI;
+      float y = vUv.y * vUv.y;
+      float c = sqrt(max(1.0 - y * y, 0.0));
+      gl_FragColor = vec4(atmos(vec3(sin(az) * c, y, -cos(az) * c)), 1.0);
+    }
+  `,
+})));
+const SS_VERT = /* glsl */ `
+  varying vec3 vWorld;
+  void main() {
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vWorld = w.xyz;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }
+`;
+const ssShade = /* glsl */ `
+  varying vec3 vWorld;
+  ${SUNSET_SEA_UNIFORMS}
+  ${SUNSET_SEA_GLSL}
+  vec3 seaAt(vec3 rd) {
+    float t = (cameraPosition.y - uSeaY) / max(-rd.y, 1e-4);
+    return seaColor(rd, t, cameraPosition.xz + rd.xz * t);
+  }
+`;
+const ssSkyMat = new THREE.ShaderMaterial({
+  defines: { SKY_LUT: "" },
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: SS,
+  vertexShader: SS_VERT,
+  fragmentShader: ssShade + /* glsl */ `
+    void main() {
+      vec3 rd = normalize(vWorld - cameraPosition);
+      gl_FragColor = vec4(finish(rd.y >= 0.0 ? skyColor(rd, true) : seaAt(rd)), 1.0);
+    }
+  `,
+});
+const ssSeaMat = new THREE.ShaderMaterial({
+  defines: { SKY_LUT: "" },
+  uniforms: SS,
+  vertexShader: SS_VERT,
+  fragmentShader: ssShade + /* glsl */ `
+    void main() {
+      vec3 rd = normalize(vWorld - cameraPosition);
+      gl_FragColor = vec4(finish(rd.y < 0.0 ? seaAt(rd) : skyColor(rd, false)), 1.0);
+    }
+  `,
+});
+if (SKY_SEA) {
+  skyDome.material = ssSkyMat;
+  sea.material = ssSeaMat;
+  // these shaders are heavy: draw them after the terrace so hidden pixels fail the depth test
+  // and are never shaded (the sea first, then the dome fills whatever is left)
+  sea.renderOrder = 1;
+  skyDome.renderOrder = 2;
+}
 
 // --- light -----------------------------------------------------------------
 const hemi = new THREE.HemisphereLight("#c06a48", "#171028", 0.6);
@@ -1470,6 +1575,8 @@ console.log(
 const wind = { x: 0.6, target: 0.6, nextShift: 40 };
 
 const clock = new THREE.Clock();
+const _ssBuf = new THREE.Vector2();
+const EXPOSURE_OPEN = parseFloat(PARAMS.get("open")) || 1.2; // decades of exposure gained at full blue hour
 function tick() {
   const t = clock.getElapsedTime();
   energy += (currentEnergy(t) - energy) * 0.02;
@@ -2011,6 +2118,21 @@ function tick() {
   );
   camera.lookAt(shot.look);
 
+  if (SKY_SEA) {
+    SS.uTime.value = t;
+    SS.uCamH.value = camera.position.y - SS.uSeaY.value;
+    SS.uPix.value = THREE.MathUtils.degToRad(camera.fov) / renderer.getDrawingBufferSize(_ssBuf).y;
+    const elev = Math.asin(THREE.MathUtils.clamp(SUN_DIR.y, -1, 1));
+    // single scattering leaves twilight too dark: open the aperture as the sun goes under,
+    // like a camera would, so the blue hour reads blue instead of black
+    const deg = THREE.MathUtils.radToDeg(elev);
+    SS.uExposure.value = 0.3 * Math.pow(10, THREE.MathUtils.smoothstep(-deg, -1, 4.5) * EXPOSURE_OPEN);
+    SS.uSunTrans.value.fromArray(sunTransmittance(SS.uCamH.value, elev, SS.uTurb.value));
+    SS.uCloudSun.value.fromArray(sunTransmittance(3500, elev, SS.uTurb.value));
+    renderer.setRenderTarget(skyLut);
+    renderer.render(lutScene, lutCam);
+    renderer.setRenderTarget(null);
+  }
   renderer.render(scene, camera);
   if (!document.hidden) requestAnimationFrame(tick);
 }
