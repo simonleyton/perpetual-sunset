@@ -426,6 +426,10 @@ const SIL = {
   duskRimC: { value: new THREE.Color("#9a93b2") },
   canopy: { value: 0 },
   canopyC: { value: new THREE.Color("#6a5f8a") },
+  // 0 at the horizon, 1 with the sun well up: the terrace is a silhouette only at sundown
+  day: { value: 0 },
+  // how much lighter every surface reflects at full daylight; the painted tones are the sundown truth
+  albedoDay: { value: parseFloat(PARAMS.get("albedo")) || 3.0 },
 };
 function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness, ...extra });
@@ -441,6 +445,8 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     s.uniforms.uDuskRimC = SIL.duskRimC;
     s.uniforms.uCanopy = SIL.canopy;
     s.uniforms.uCanopyC = SIL.canopyC;
+    s.uniforms.uDay = SIL.day;
+    s.uniforms.uAlbedoDay = SIL.albedoDay;
     s.vertexShader = s.vertexShader.replace(
       "#include <common>",
       "varying vec3 vSilWorld;\n#include <common>"
@@ -450,7 +456,10 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
     );
     s.fragmentShader = s.fragmentShader.replace(
       "#include <common>",
-      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC; uniform float uCanopy; uniform vec3 uCanopyC;\nvarying vec3 vSilWorld;\n#include <common>"
+      "uniform vec3 uRimC; uniform vec3 uCoolC; uniform vec3 uLiftC; uniform vec3 uHotC; uniform vec3 uSunV; uniform float uRimI; uniform float uPeak; uniform float uDuskRim; uniform vec3 uDuskRimC; uniform float uCanopy; uniform vec3 uCanopyC; uniform float uDay; uniform float uAlbedoDay;\nvarying vec3 vSilWorld;\n#include <common>"
+    ).replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>\n      diffuseColor.rgb *= mix(1.0, ${opts.floor ? "1.0 + (uAlbedoDay - 1.0) * 0.5" : "uAlbedoDay"}, uDay);`
     ).replace(
       "#include <opaque_fragment>",
       /* glsl */ `
@@ -487,7 +496,7 @@ function silhouetteMat(hex, roughness, extra = {}, opts = {}) {
       float fgrain = fract(sin(dot(vSilWorld.xz * 7.0, vec2(12.9898, 78.233))) * 43758.5453);
       outgoingLight *= 0.94 + plank * 0.06 + (fgrain - 0.5) * 0.05;
       // the foreground falls into its own warm shadow; the eye goes to the sea
-      outgoingLight *= mix(1.0, 0.55, smoothstep(8.0, 25.0, vSilWorld.z));` : ""}
+      outgoingLight *= mix(1.0, mix(0.55, 0.85, uDay), smoothstep(8.0, 25.0, vSilWorld.z));` : ""}
       ${opts.grain ? /* glsl */ `
       // handmade: faint material grain, only legible up close
       float pg = fract(sin(dot(vSilWorld.xy * 42.0 + vSilWorld.z * 17.0, vec2(12.9898, 78.233))) * 43758.5453);
@@ -1576,6 +1585,14 @@ const wind = { x: 0.6, target: 0.6, nextShift: 40 };
 
 const clock = new THREE.Clock();
 const _ssBuf = new THREE.Vector2();
+const DAY_KEY = parseFloat(PARAMS.get("key")) || 2.6;   // extra sun on the terrace at full daylight
+const DAY_FILL = parseFloat(PARAMS.get("fill")) || 5.0; // extra sky fill at full daylight: the shadow sides are lit by the whole sky
+const _sunPhys = new THREE.Color();
+const _dayAmbient = new THREE.Color("#e8dcc6"); // the pale warm haze the sky reads as
+const _groundNight = new THREE.Color("#171028");
+const _groundDay = new THREE.Color("#5a3a2c");  // warm deck bounce
+const _liftDay = new THREE.Color("#2a1c1e");     // black point rises, never clips
+const _fogDay = new THREE.Color("#d8c6ac");
 const EXPOSURE_OPEN = parseFloat(PARAMS.get("open")) || 1.2; // decades of exposure gained at full blue hour
 function tick() {
   const t = clock.getElapsedTime();
@@ -2129,6 +2146,18 @@ function tick() {
     SS.uExposure.value = 0.3 * Math.pow(10, THREE.MathUtils.smoothstep(-deg, -1, 4.5) * EXPOSURE_OPEN);
     SS.uSunTrans.value.fromArray(sunTransmittance(SS.uCamH.value, elev, SS.uTurb.value));
     SS.uCloudSun.value.fromArray(sunTransmittance(3500, elev, SS.uTurb.value));
+    // the same sun lights the terrace. daylight rises with the sun's height, so the
+    // café is a silhouette at sundown and a lit place in the afternoon
+    const daylight = THREE.MathUtils.smoothstep(THREE.MathUtils.radToDeg(elev), 1.5, 9);
+    _sunPhys.setRGB(SS.uSunTrans.value.x, SS.uSunTrans.value.y, SS.uSunTrans.value.z);
+    sunLight.color.lerp(_sunPhys, 0.75 * daylight);
+    sunLight.intensity += DAY_KEY * daylight;
+    hemi.color.lerp(_dayAmbient, 0.8 * daylight);
+    hemi.intensity += DAY_FILL * daylight;
+    hemi.groundColor.copy(_groundNight).lerp(_groundDay, daylight);
+    SIL.lift.value.lerp(_liftDay, daylight);
+    SIL.day.value = daylight;
+    scene.fog.color.lerp(_fogDay, 0.6 * daylight);
     renderer.setRenderTarget(skyLut);
     renderer.render(lutScene, lutCam);
     renderer.setRenderTarget(null);
