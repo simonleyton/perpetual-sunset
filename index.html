@@ -13,6 +13,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <script>
+    // "just the sunset" is remembered: restore it before first paint so nothing flashes
+    try { if (localStorage.getItem("ps_scenery") === "1") document.documentElement.classList.add("scenery"); } catch (e) {}
+  </script>
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js" } }
   </script>
@@ -54,6 +58,19 @@
       <p class="fine">sound on · the set is live</p>
     </div>
   </div>
+
+  <button id="scenery" class="scenery-toggle" aria-pressed="false" aria-label="Just the sunset" title="Just the sunset">
+    <svg class="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+      <circle cx="12" cy="12" r="2.6" />
+    </svg>
+    <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4.2 8.3C3.1 9.6 2.5 12 2.5 12s3.5 6 9.5 6c1.1 0 2.1-.2 3-.5" />
+      <path d="M9.2 6.4c.9-.3 1.8-.4 2.8-.4 6 0 9.5 6 9.5 6s-.9 1.6-2.6 3.1" />
+      <path d="M10.2 10.2a2.6 2.6 0 0 0 3.6 3.6" />
+      <line x1="4" y1="4" x2="20" y2="20" />
+    </svg>
+  </button>
 
   <button id="sound-pill" class="sound-pill" hidden aria-label="Sound on">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

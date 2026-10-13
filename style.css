@@ -161,7 +161,7 @@ body {
 
 .sound-pill {
   position: fixed;
-  top: 26px; right: 36px;
+  top: 26px; right: 86px;
   z-index: 6;
   font-family: "Space Grotesk", sans-serif;
   font-size: 11px;
@@ -247,7 +247,48 @@ body {
   outline-offset: -1px;
 }
 
+/* just the sunset: every piece of chrome retreats the way it came and the
+   scene is all there is. The toggle stays a moment, dimmed, then rests too;
+   any movement wakes it, Escape or a tap on it brings the café back. */
+.scenery-toggle {
+  position: fixed;
+  top: 26px; right: 36px;
+  z-index: 7;
+  width: 38px; height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--ink);
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 247, 239, 0.28);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: background 0.4s, opacity 0.6s ease, transform 0.6s ease;
+}
+.scenery-toggle svg { width: 18px; height: 18px; }
+.scenery-toggle .eye-off { display: none; }
+.scenery-toggle:hover, .scenery-toggle:focus-visible { opacity: 1; background: rgba(255, 247, 239, 0.14); }
+.scenery-toggle:focus-visible { outline: 2px solid rgba(255, 247, 239, 0.7); outline-offset: 3px; }
+
+.hud, .sound-pill { transition: opacity 0.9s ease, transform 0.9s ease; }
+html.scenery .hud, html.scenery .sound-pill, html.scenery .hour, html.scenery .hour.shown {
+  opacity: 0;
+  pointer-events: none;
+}
+html.scenery .hud * { pointer-events: none; }
+html.scenery .hud-top, html.scenery .sound-pill { transform: translateY(-6px); }
+html.scenery .hud-bottom { transform: translateY(6px); }
+html.scenery .scenery-toggle .eye { display: none; }
+html.scenery .scenery-toggle .eye-off { display: block; }
+html.scenery .scenery-toggle { opacity: 0.5; transition: background 0.4s, opacity 1.2s ease; }
+html.scenery .scenery-toggle.idle { opacity: 0; }
+html.scenery .scenery-toggle:hover, html.scenery .scenery-toggle:focus-visible { opacity: 1; transition-duration: 0.3s; }
+
 @media (max-width: 720px) {
+  .scenery-toggle { top: 16px; right: 20px; width: 42px; height: 42px; }
+  .sound-pill { right: 72px; }
   .hour { bottom: 152px; padding-left: 4px; padding-right: 4px; }
   .hour-words button { font-size: 9.5px; letter-spacing: 0.22em; padding: 9px 5px 9px 7px; }
   .hour-words button .long { display: none; }
@@ -256,7 +297,7 @@ body {
 
   .hud { padding: 18px 20px; }
   .sound-pill {
-    top: 16px; right: 20px;
+    top: 16px;
     width: 42px; height: 42px;
     padding: 0;
     display: grid;
@@ -275,5 +316,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .now-playing .dot { animation: none; }
   .hour, .hour.shown { transform: translate(-50%, 0); transition: opacity 0.4s ease; }
+  .hud, .sound-pill, .scenery-toggle { transition: opacity 0.4s ease; }
+  html.scenery .hud-top, html.scenery .hud-bottom, html.scenery .sound-pill { transform: none; }
   .gate { transition: opacity 0.4s ease, visibility 0.4s; }
 }

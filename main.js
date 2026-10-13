@@ -1624,6 +1624,7 @@ function gotoHour(i) {
 let hourHideAt = 0;
 let hourHeld = false;
 function showHour(ms = 3200) {
+  if (document.documentElement.classList.contains("scenery")) return;
   hourEl.classList.add("shown");
   clearTimeout(hourHideAt);
   if (!hourHeld) hourHideAt = setTimeout(() => hourEl.classList.remove("shown"), ms);
@@ -1672,6 +1673,53 @@ function hourArrive() {
   setTimeout(() => showHour(6500), 1400);
 }
 if (QUIET || RETURNING) hourArrive();
+
+// --- just the sunset ------------------------------------------------------------
+// One tap and every piece of chrome retreats; the scene is all there is. The
+// toggle lingers dimmed, then rests. Movement wakes the toggle alone, never
+// the chrome. Escape, or the toggle, brings the café back. Remembered across
+// visits, so a screen left on the wall stays just the sunset.
+const SCENERY_KEY = "ps_scenery";
+const rootEl = document.documentElement;
+const sceneryBtn = document.getElementById("scenery");
+let sceneryIdleAt = 0;
+function wakeScenery(ms = 2600) {
+  if (!rootEl.classList.contains("scenery")) return;
+  sceneryBtn.classList.remove("idle");
+  clearTimeout(sceneryIdleAt);
+  sceneryIdleAt = setTimeout(() => {
+    if (!sceneryBtn.matches(":hover, :focus-visible")) sceneryBtn.classList.add("idle");
+  }, ms);
+}
+function setScenery(on) {
+  rootEl.classList.toggle("scenery", on);
+  sceneryBtn.setAttribute("aria-pressed", String(on));
+  const label = on ? "Show the controls" : "Just the sunset";
+  sceneryBtn.setAttribute("aria-label", label);
+  sceneryBtn.title = label;
+  try { on ? localStorage.setItem(SCENERY_KEY, "1") : localStorage.removeItem(SCENERY_KEY); } catch {}
+  if (on) {
+    hourEl.classList.remove("shown");
+    clearTimeout(hourHideAt);
+    wakeScenery();
+  } else {
+    sceneryBtn.classList.remove("idle");
+    clearTimeout(sceneryIdleAt);
+  }
+}
+sceneryBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setScenery(!rootEl.classList.contains("scenery"));
+  sceneryBtn.blur();
+});
+sceneryBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+sceneryBtn.addEventListener("focus", () => wakeScenery());
+for (const ev of ["pointermove", "pointerdown", "keydown"]) addEventListener(ev, () => wakeScenery(), { passive: true });
+addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && rootEl.classList.contains("scenery")) setScenery(false);
+});
+// the head script may have restored the class before first paint: sync the toggle
+if (rootEl.classList.contains("scenery")) { setScenery(true); wakeScenery(4000); }
 
 // subtle pointer parallax — lean, don't fly
 const lean = { x: 0, y: 0 };
