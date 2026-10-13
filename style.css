@@ -239,7 +239,7 @@ body {
   text-shadow: 0 1px 14px rgba(0, 0, 0, 0.35);
   transition: color 0.6s ease;
 }
-.hour-words button .short { display: none; }
+.hour-words button .time { display: none; }
 .hour-words button:hover { color: var(--ink); }
 .hour-words button[aria-pressed="true"] { color: var(--ink); }
 .hour-words button:focus-visible {
@@ -289,11 +289,68 @@ html.scenery .scenery-toggle:hover, html.scenery .scenery-toggle:focus-visible {
 @media (max-width: 720px) {
   .scenery-toggle { top: 16px; right: 20px; width: 42px; height: 42px; }
   .sound-pill { right: 72px; }
-  .hour { bottom: 152px; padding-left: 4px; padding-right: 4px; }
-  .hour-words button { font-size: 9.5px; letter-spacing: 0.22em; padding: 9px 5px 9px 7px; }
-  .hour-words button .long { display: none; }
-  .hour-words button .short { display: inline; }
-  .hour-line { margin: 0 7px 8px; }
+  /* on phones the hour is a rail at the left edge: a vertical hairline, five
+     ticks, five times in the page's clock voice. The sun travels down it as
+     the real one sinks; the Sunset tick is the long one, the horizon. */
+  .hour {
+    left: 20px;
+    bottom: auto;
+    top: 29%;
+    padding: 0 0 0 0;
+    transform: translate(-5px, 0);
+    /* the rail is a silhouette by day and lights up with the café at night:
+       main.js writes these from the sun's height every frame it changes */
+    --hour-ink: #fff7ef;
+    --hour-ink-dim: rgba(255, 247, 239, 0.62);
+    --hour-line: rgba(255, 247, 239, 0.3);
+    --hour-sun: #ffd9ad;
+    --hour-sun-glow: rgba(255, 196, 128, 0.95);
+  }
+  .hour-line { background: var(--hour-line); box-shadow: none; }
+  .hour-words button { color: var(--hour-ink-dim); text-shadow: none; }
+  .hour-words button:hover, .hour-words button[aria-pressed="true"] { color: var(--hour-ink); }
+  .hour-words button::before { background: var(--hour-line); }
+  .hour-sun { background: var(--hour-sun); box-shadow: 0 0 8px var(--hour-sun-glow); }
+  .hour.shown { transform: translate(0, 0); }
+  .hour-line {
+    position: absolute;
+    left: 0; top: 26px; bottom: 26px;
+    width: 1px; height: auto;
+    margin: 0;
+    box-shadow: 1px 0 10px rgba(0, 0, 0, 0.25);
+  }
+  .hour-words { flex-direction: column; align-items: stretch; }
+  .hour-words button {
+    position: relative;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    padding: 0 14px 0 18px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .hour-words button::before {
+    content: "";
+    position: absolute;
+    left: -4px; top: 50%;
+    width: 9px; height: 1px;
+  }
+  .hour-words button:nth-child(3)::before { left: -7px; width: 15px; }
+  .hour-words button .name { display: none; }
+  .hour-words button .time {
+    display: inline;
+    font-size: 13px;
+    font-weight: 300;
+    letter-spacing: 0.06em;
+    font-variant-numeric: tabular-nums;
+  }
+  .hour-words button .time small {
+    font-size: 8.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-left: 4px;
+    opacity: 0.8;
+  }
 
   .hud { padding: 18px 20px; }
   .sound-pill {
@@ -316,6 +373,7 @@ html.scenery .scenery-toggle:hover, html.scenery .scenery-toggle:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .now-playing .dot { animation: none; }
   .hour, .hour.shown { transform: translate(-50%, 0); transition: opacity 0.4s ease; }
+  @media (max-width: 720px) { .hour, .hour.shown { transform: none; } }
   .hud, .sound-pill, .scenery-toggle { transition: opacity 0.4s ease; }
   html.scenery .hud-top, html.scenery .hud-bottom, html.scenery .sound-pill { transform: none; }
   .gate { transition: opacity 0.4s ease, visibility 0.4s; }

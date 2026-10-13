@@ -1576,19 +1576,43 @@ const hourLine = hourEl.querySelector(".hour-line");
 const hourSun = hourEl.querySelector(".hour-sun");
 const hourWords = [...hourEl.querySelectorAll("button")];
 let hourAnchors = HOURS.map((_, i) => i / (HOURS.length - 1)); // label centres as fractions of the line
+let hourVertical = false; // phones: the rail runs down the left edge
 function measureHour() {
   const l = hourLine.getBoundingClientRect();
-  if (!l.width) return;
+  if (!l.width && !l.height) return;
+  hourVertical = l.height > l.width;
   hourAnchors = hourWords.map((b) => {
     const r = b.getBoundingClientRect();
-    // the tracked label sits half a letter-space left of its box centre
-    return (r.left + r.width / 2 - 1.4 - l.left) / l.width;
+    return hourVertical
+      ? (r.top + r.height / 2 - l.top) / l.height
+      // the tracked label sits half a letter-space left of its box centre
+      : (r.left + r.width / 2 - 1.4 - l.left) / l.width;
   });
 }
 addEventListener("resize", measureHour);
 document.fonts?.ready.then(measureHour);
 measureHour();
 
+// the rail's ink follows the light: the café's silhouette brown by day, the
+// page's cream once the lights come on. Written as CSS variables, phones only
+// read them (desktop sits on the deck, where cream always reads)
+const _inkDay = [42, 28, 30], _inkNight = [255, 247, 239];
+const _sunDay = [232, 134, 42], _sunNight = [255, 217, 173];
+let hourInkDay = -1;
+function hourInk(sunDeg) {
+  // the sky behind the rail stays bright until the sun is nearly under
+  const day = THREE.MathUtils.smoothstep(sunDeg, -1, 3);
+  if (Math.abs(day - hourInkDay) < 0.01) return;
+  hourInkDay = day;
+  const mix = (a, b) => a.map((v, i) => Math.round(THREE.MathUtils.lerp(v, b[i], day))).join(", ");
+  const ink = mix(_inkNight, _inkDay), sun = mix(_sunNight, _sunDay);
+  const st = hourEl.style;
+  st.setProperty("--hour-ink", `rgb(${ink})`);
+  st.setProperty("--hour-ink-dim", `rgba(${ink}, ${(0.62 + 0.13 * day).toFixed(2)})`);
+  st.setProperty("--hour-line", `rgba(${ink}, ${(0.3 + 0.1 * day).toFixed(2)})`);
+  st.setProperty("--hour-sun", `rgb(${sun})`);
+  st.setProperty("--hour-sun-glow", `rgba(${sun}, ${(0.95 - 0.6 * day).toFixed(2)})`);
+}
 function hourIndexAt(alt) { let i = 0; while (i < HOUR_EDGES.length && alt <= HOUR_EDGES[i]) i++; return i; }
 let hourActive = -1;
 function updateHour(alt, sunDeg) {
@@ -1599,9 +1623,17 @@ function updateHour(alt, sunDeg) {
     THREE.MathUtils.mapLinear(alt, HOURS[k].alt, HOURS[k + 1].alt, hourAnchors[k], hourAnchors[k + 1]), 0, 1);
   // height: above the horizon while the sun is up, under it after
   const y = sunDeg >= 0 ? -7 * THREE.MathUtils.smoothstep(sunDeg, 0, 12) : 4 * THREE.MathUtils.smoothstep(-sunDeg, 0, 4.5);
-  hourSun.style.left = `${(f * 100).toFixed(2)}%`;
-  hourSun.style.transform = `translate(-50%, ${y.toFixed(2)}px)`;
+  if (hourVertical) {
+    hourSun.style.left = "50%";
+    hourSun.style.top = `${(f * 100).toFixed(2)}%`;
+    hourSun.style.transform = "translate(-50%, -50%)";
+  } else {
+    hourSun.style.top = "50%";
+    hourSun.style.left = `${(f * 100).toFixed(2)}%`;
+    hourSun.style.transform = `translate(-50%, ${y.toFixed(2)}px)`;
+  }
   hourSun.style.opacity = sunDeg >= 0 ? 1 : 1 - 0.6 * THREE.MathUtils.smoothstep(-sunDeg, 0, 3);
+  hourInk(sunDeg);
   const i = hourIndexAt(alt);
   if (i !== hourActive) {
     hourActive = i;
