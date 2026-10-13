@@ -17,7 +17,7 @@ const PORTRAIT = innerHeight > innerWidth;
 // ?phase=0..1 — freeze the sun cycle for art direction (1 golden, 0.45 dusk, 0 blue hour)
 const PARAMS = new URLSearchParams(location.search);
 const QUIET = PARAMS.has("quiet");
-const PHASE_LOCK = parseFloat(PARAMS.get("phase"));
+let PHASE_LOCK = parseFloat(PARAMS.get("phase"));
 // ?sky=velvet — the painted Velvet Ember sky and sea instead of the sunset-sea experiment
 const SKY_SEA = PARAMS.get("sky") !== "velvet";
 
@@ -32,15 +32,23 @@ const SUNSET_DWELL = 0.12;
 // the swing, paid for by an afternoon that hurries a little at the top
 // (keep 2*SUNSET_DWELL + BLUE_DWELL well under 1 or the pendulum runs backward)
 const BLUE_DWELL = 0.45;
-// staged arrival: every session opens on the true sunset — sun visible and
-// warm above the water, salmon sky under smoky violet, already descending.
-// (solves the warped phase numerically so entry still lands at alt 0.9)
-const CYCLE_OFFSET = (() => {
-  const target = Math.acos(2 * 0.9 - 1);
+// staged arrival: every session opens between afternoon and sunset — the sun
+// still visible and warm above the water, already descending. alt 0.66 is the
+// midpoint of the hour control's line (Simon's call, Oct 13 2026).
+const CYCLE_PERIOD = CYCLE_MINUTES * 60;
+// seconds into the cycle at which the sun passes `alt`, descending
+function descendingSeconds(alt) {
+  const target = Math.acos(2 * alt - 1);
   let th = target;
   for (let i = 0; i < 24; i++) th = target - SUNSET_DWELL * Math.sin(2 * th) - BLUE_DWELL * Math.sin(th);
-  return (th / (2 * Math.PI)) * CYCLE_MINUTES * 60;
-})();
+  return (th / (2 * Math.PI)) * CYCLE_PERIOD;
+}
+const ENTRY_ALT = 0.66;
+const CYCLE_OFFSET = descendingSeconds(ENTRY_ALT);
+// the hour control moves the pendulum's clock, never the sun directly: a tap
+// eases this shift so the whole evening (sky, sea, lights, figures) flows there
+let hourShift = 0;
+let hourTween = null;
 
 // --- the twilight overture -------------------------------------------------------
 // The opening note: a quiet Pinto twilight (references/pinto_twilight.png),
@@ -1490,6 +1498,7 @@ window.__psAutoplayed = () => {
   gateEl?.classList.add("open");
   if (pillEl) pillEl.hidden = true;
   localStorage.setItem("ps_v", "1");
+  hourArrive();
 };
 
 function startAudio() {
@@ -1500,6 +1509,7 @@ function startAudio() {
   gateEl?.classList.add("open");
   pillEl.hidden = true;
   localStorage.setItem("ps_v", "1");
+  hourArrive();
 }
 function offerPill() {
   if (!audioStarted) pillEl.hidden = false;
@@ -1533,6 +1543,7 @@ if (QUIET) {
       gateEl.classList.add("open");
       offerPill();
       armTapAnywhere();
+      hourArrive();
     }
   }, 12000);
 }
@@ -1544,6 +1555,123 @@ addEventListener("keydown", (e) => {
   if (!audioStarted) startAudio();
   else Promise.resolve(widget?.togglePlay?.()).catch(() => {});
 });
+
+// --- the hour: three words under a horizon line -----------------------------------
+// The control is a miniature of the thing it controls: a hairline horizon, a sun
+// that travels along it as the real one moves (above the line while the sun is
+// up, under it after sundown), three words for where the evening can go. A tap
+// eases the whole evening there along the shortest arc of the pendulum.
+// It appears only on intent — pointer heading for the bottom of the frame, a tap
+// on the scene, a key, focus — and once on arrival so people learn it is there.
+const HOURS = [
+  { alt: 0.9 },  // afternoon: sun well up, terrace lit
+  { alt: 0.66 }, // golden hour: the opening, sun low and warm
+  { alt: 0.42 }, // sunset: the disc a minute above the water, about to touch
+  { alt: 0.24 }, // dusk: the sun just under, the ember still on the water
+  { alt: 0.1 },  // blue hour: the bottom of the swing, lights on
+];
+const HOUR_EDGES = HOURS.slice(1).map((h, i) => (HOURS[i].alt + h.alt) / 2); // register boundaries, midway
+const hourEl = document.getElementById("hour");
+const hourLine = hourEl.querySelector(".hour-line");
+const hourSun = hourEl.querySelector(".hour-sun");
+const hourWords = [...hourEl.querySelectorAll("button")];
+let hourAnchors = HOURS.map((_, i) => i / (HOURS.length - 1)); // label centres as fractions of the line
+function measureHour() {
+  const l = hourLine.getBoundingClientRect();
+  if (!l.width) return;
+  hourAnchors = hourWords.map((b) => {
+    const r = b.getBoundingClientRect();
+    // the tracked label sits half a letter-space left of its box centre
+    return (r.left + r.width / 2 - 1.4 - l.left) / l.width;
+  });
+}
+addEventListener("resize", measureHour);
+document.fonts?.ready.then(measureHour);
+measureHour();
+
+function hourIndexAt(alt) { let i = 0; while (i < HOUR_EDGES.length && alt <= HOUR_EDGES[i]) i++; return i; }
+let hourActive = -1;
+function updateHour(alt, sunDeg) {
+  // position along the line: piecewise linear through the anchors
+  let k = 0;
+  while (k < HOURS.length - 2 && alt < HOURS[k + 1].alt) k++;
+  const f = THREE.MathUtils.clamp(
+    THREE.MathUtils.mapLinear(alt, HOURS[k].alt, HOURS[k + 1].alt, hourAnchors[k], hourAnchors[k + 1]), 0, 1);
+  // height: above the horizon while the sun is up, under it after
+  const y = sunDeg >= 0 ? -7 * THREE.MathUtils.smoothstep(sunDeg, 0, 12) : 4 * THREE.MathUtils.smoothstep(-sunDeg, 0, 4.5);
+  hourSun.style.left = `${(f * 100).toFixed(2)}%`;
+  hourSun.style.transform = `translate(-50%, ${y.toFixed(2)}px)`;
+  hourSun.style.opacity = sunDeg >= 0 ? 1 : 1 - 0.6 * THREE.MathUtils.smoothstep(-sunDeg, 0, 3);
+  const i = hourIndexAt(alt);
+  if (i !== hourActive) {
+    hourActive = i;
+    hourWords.forEach((b, k) => b.setAttribute("aria-pressed", k === i ? "true" : "false"));
+  }
+}
+
+function gotoHour(i) {
+  PHASE_LOCK = NaN;
+  const t = clock.getElapsedTime();
+  const now = ((t + CYCLE_OFFSET + hourShift) % CYCLE_PERIOD + CYCLE_PERIOD) % CYCLE_PERIOD;
+  let d = descendingSeconds(HOURS[i].alt) - now;
+  d = ((d % CYCLE_PERIOD) + CYCLE_PERIOD * 1.5) % CYCLE_PERIOD - CYCLE_PERIOD / 2; // shortest arc
+  const dur = REDUCED_MOTION ? 0.8 : THREE.MathUtils.clamp(1.4 + 2.8 * Math.abs(d) / (CYCLE_PERIOD / 2), 1.8, 4.2);
+  hourTween = { from: hourShift, to: hourShift + d, t0: t, dur };
+  return dur;
+}
+
+// intent: shown while the pointer is heading for it, a beat after it leaves
+let hourHideAt = 0;
+let hourHeld = false;
+function showHour(ms = 3200) {
+  hourEl.classList.add("shown");
+  clearTimeout(hourHideAt);
+  if (!hourHeld) hourHideAt = setTimeout(() => hourEl.classList.remove("shown"), ms);
+}
+function holdHour(on) {
+  hourHeld = on;
+  if (on) { clearTimeout(hourHideAt); hourEl.classList.add("shown"); }
+  else showHour(2200);
+}
+hourEl.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") holdHour(true); });
+hourEl.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") holdHour(false); });
+hourEl.addEventListener("focusin", () => holdHour(true));
+hourEl.addEventListener("focusout", (e) => { if (!hourEl.contains(e.relatedTarget)) holdHour(false); });
+hourWords.forEach((b, i) =>
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const dur = gotoHour(i);
+    showHour(dur * 1000 + 2600);
+    b.blur();
+  })
+);
+addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse" || hourHeld) return;
+  if (e.clientY > innerHeight * 0.62) showHour();
+});
+addEventListener("pointerdown", (e) => {
+  if (e.target.closest("a, button, iframe, #player-dock")) return;
+  showHour(4000);
+});
+addEventListener("keydown", (e) => {
+  if (e.target.closest?.("input, textarea")) return;
+  const i = hourActive;
+  let to = -1;
+  if (/^[1-5]$/.test(e.key)) to = Number(e.key) - 1;
+  else if (e.key === "ArrowRight") to = Math.min(HOURS.length - 1, i + 1);
+  else if (e.key === "ArrowLeft") to = Math.max(0, i - 1);
+  if (to < 0) return;
+  e.preventDefault();
+  const dur = to === i ? 0 : gotoHour(to);
+  showHour(dur * 1000 + 2600);
+});
+let hourArrived = false;
+function hourArrive() {
+  if (hourArrived) return;
+  hourArrived = true;
+  setTimeout(() => showHour(6500), 1400);
+}
+if (QUIET || RETURNING) hourArrive();
 
 // subtle pointer parallax — lean, don't fly
 const lean = { x: 0, y: 0 };
@@ -1610,10 +1738,15 @@ function tick() {
   energy += (currentEnergy(t) - energy) * 0.02;
 
   // --- the sun's pendulum: golden -> dusk -> blue hour -> back ---
+  if (hourTween) {
+    const u = Math.min(1, (t - hourTween.t0) / hourTween.dur);
+    hourShift = THREE.MathUtils.lerp(hourTween.from, hourTween.to, u * u * u * (u * (u * 6 - 15) + 10));
+    if (u >= 1) hourTween = null;
+  }
   const alt = Number.isFinite(PHASE_LOCK)
     ? Math.min(1, Math.max(0, PHASE_LOCK))
     : (() => {
-        const th = ((t + CYCLE_OFFSET) / (CYCLE_MINUTES * 60)) * Math.PI * 2;
+        const th = ((t + CYCLE_OFFSET + hourShift) / CYCLE_PERIOD) * Math.PI * 2;
         return 0.5 + 0.5 * Math.cos(th + SUNSET_DWELL * Math.sin(2 * th) + BLUE_DWELL * Math.sin(th));
       })();
   // the second clock: what the sky believes. raw alt keeps the sun honestly sinking
@@ -1627,6 +1760,7 @@ function tick() {
     const sunDeg = THREE.MathUtils.radToDeg(Math.asin(SUN_DIR.y));
     const afterSundown = 1 - THREE.MathUtils.smoothstep(sunDeg, 1.5, 9);
     for (const a of duskAccents) a.m.color.copy(a.from).lerp(a.to, afterSundown);
+    updateHour(alt, sunDeg);
   }
   skyMat.uniforms.uHorizon.value.copy(paletteAt("horizon", palAlt));
   skyMat.uniforms.uMid.value.copy(paletteAt("mid", palAlt));

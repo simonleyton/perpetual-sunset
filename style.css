@@ -183,7 +183,77 @@ body {
 .sound-pill svg { display: none; width: 19px; height: 19px; }
 .sound-pill[hidden] { display: none !important; }
 
+/* the hour: a hairline horizon, a travelling sun, three words.
+   Rests invisible; rises on intent (pointer heading for the bottom of the
+   frame, a tap on the scene, a key, focus) and once on arrival. */
+.hour {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 6;
+  padding: 14px 10px 6px;
+  transform: translate(-50%, 5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.1s ease, transform 1.1s ease;
+}
+.hour.shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hour-line {
+  position: relative;
+  height: 1px;
+  margin: 0 14px 10px;
+  background: rgba(255, 247, 239, 0.26);
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.25);
+}
+.hour-sun {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: #ffd9ad;
+  box-shadow: 0 0 9px rgba(255, 196, 128, 0.95), 0 0 2px rgba(255, 236, 210, 1);
+  will-change: left, transform;
+}
+.hour-words { display: flex; justify-content: space-between; }
+.hour-words button {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 11px;
+  font-weight: 300;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 11px 9px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.35);
+  transition: color 0.6s ease;
+}
+.hour-words button .short { display: none; }
+.hour-words button:hover { color: var(--ink); }
+.hour-words button[aria-pressed="true"] { color: var(--ink); }
+.hour-words button:focus-visible {
+  outline: 1px solid rgba(255, 247, 239, 0.6);
+  outline-offset: -1px;
+}
+
 @media (max-width: 720px) {
+  .hour { bottom: 152px; padding-left: 4px; padding-right: 4px; }
+  .hour-words button { font-size: 9.5px; letter-spacing: 0.22em; padding: 9px 5px 9px 7px; }
+  .hour-words button .long { display: none; }
+  .hour-words button .short { display: inline; }
+  .hour-line { margin: 0 7px 8px; }
+
   .hud { padding: 18px 20px; }
   .sound-pill {
     top: 16px; right: 20px;
@@ -204,5 +274,6 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .now-playing .dot { animation: none; }
+  .hour, .hour.shown { transform: translate(-50%, 0); transition: opacity 0.4s ease; }
   .gate { transition: opacity 0.4s ease, visibility 0.4s; }
 }
