@@ -1411,14 +1411,10 @@ function initWidget() {
     .then(async () => {
       widgetReady = true;
       attemptAutoplay();
-      const name = await widget.getCurrentKey?.().catch(() => null);
-      setNowPlaying(name || MIX_FEED);
       widget.events.progress.on((pos) => { position = pos; });
       widget.events.play.on(() => {
-        setLive(true);
         window.__psAutoplayed?.(); // any successful start clears the invitations
       });
-      widget.events.pause.on(() => setLive(false));
     })
     .catch(() => {});
 }
@@ -1452,22 +1448,6 @@ async function playWhenReady() {
       await new Promise((r) => setTimeout(r, 700));
     }
   }
-}
-
-function setNowPlaying(key) {
-  fetch("https://api.mixcloud.com" + (typeof key === "string" ? key : MIX_FEED))
-    .then((r) => r.json())
-    .then((c) => {
-      document.getElementById("np-text").textContent =
-        `${c.name} — ${c.user?.name ?? "resident DJ"}`;
-      if (c.url) document.getElementById("now-playing").href = c.url;
-    })
-    .catch(() => {});
-}
-setNowPlaying(MIX_FEED);
-
-function setLive(on) {
-  document.querySelector(".now-playing .dot").style.animationPlayState = on ? "running" : "paused";
 }
 
 // energy: cue sheet if present, else a slow organic curve seeded by position
