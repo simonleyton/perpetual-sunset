@@ -220,7 +220,7 @@ body {
   border-radius: 50%;
   background: #ffd9ad;
   box-shadow: 0 0 9px rgba(255, 196, 128, 0.95), 0 0 2px rgba(255, 236, 210, 1);
-  will-change: left, transform;
+  will-change: transform;
 }
 .hour-words { display: flex; justify-content: space-between; }
 .hour-words button {
@@ -310,7 +310,7 @@ html.scenery .scenery-toggle:hover, html.scenery .scenery-toggle:focus-visible {
   .hour-words button { color: var(--hour-ink-dim); text-shadow: none; }
   .hour-words button:hover, .hour-words button[aria-pressed="true"] { color: var(--hour-ink); }
   .hour-words button::before { background: var(--hour-line); }
-  .hour-sun { background: var(--hour-sun); box-shadow: 0 0 8px var(--hour-sun-glow); }
+  .hour-sun { left: 50%; top: 0; margin-top: 0; background: var(--hour-sun); box-shadow: 0 0 8px var(--hour-sun-glow); }
   .hour.shown { transform: translate(0, 0); }
   .hour-line {
     position: absolute;

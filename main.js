@@ -1577,10 +1577,13 @@ const hourSun = hourEl.querySelector(".hour-sun");
 const hourWords = [...hourEl.querySelectorAll("button")];
 let hourAnchors = HOURS.map((_, i) => i / (HOURS.length - 1)); // label centres as fractions of the line
 let hourVertical = false; // phones: the rail runs down the left edge
+let hourLen = 0; // the line's length in px: the dot moves by transform, never by left/top
+let hourSlopes = []; // tangents at the anchors, so the sweep has no kinks where it passes a word
 function measureHour() {
   const l = hourLine.getBoundingClientRect();
   if (!l.width && !l.height) return;
   hourVertical = l.height > l.width;
+  hourLen = hourVertical ? l.height : l.width;
   hourAnchors = hourWords.map((b) => {
     const r = b.getBoundingClientRect();
     return hourVertical
@@ -1588,6 +1591,17 @@ function measureHour() {
       // the tracked label sits half a letter-space left of its box centre
       : (r.left + r.width / 2 - 1.4 - l.left) / l.width;
   });
+  // monotone cubic (Fritsch-Carlson): passes through every anchor, speed stays continuous
+  const n = HOURS.length;
+  const d = [];
+  for (let k = 0; k < n - 1; k++) d.push((hourAnchors[k + 1] - hourAnchors[k]) / (HOURS[k + 1].alt - HOURS[k].alt));
+  hourSlopes = HOURS.map((_, k) =>
+    k === 0 ? d[0] : k === n - 1 ? d[n - 2] : d[k - 1] * d[k] <= 0 ? 0 : (d[k - 1] + d[k]) / 2);
+  for (let k = 0; k < n - 1; k++) {
+    if (!d[k]) { hourSlopes[k] = hourSlopes[k + 1] = 0; continue; }
+    const a = hourSlopes[k] / d[k], b = hourSlopes[k + 1] / d[k], h = a * a + b * b;
+    if (h > 9) { const t = 3 / Math.sqrt(h); hourSlopes[k] = t * a * d[k]; hourSlopes[k + 1] = t * b * d[k]; }
+  }
 }
 addEventListener("resize", measureHour);
 document.fonts?.ready.then(measureHour);
@@ -1616,22 +1630,22 @@ function hourInk(sunDeg) {
 function hourIndexAt(alt) { let i = 0; while (i < HOUR_EDGES.length && alt <= HOUR_EDGES[i]) i++; return i; }
 let hourActive = -1;
 function updateHour(alt, sunDeg) {
-  // position along the line: piecewise linear through the anchors
+  // position along the line: a smooth curve through the anchors
   let k = 0;
   while (k < HOURS.length - 2 && alt < HOURS[k + 1].alt) k++;
+  const x0 = HOURS[k].alt, h = HOURS[k + 1].alt - x0;
+  const u = THREE.MathUtils.clamp((alt - x0) / h, 0, 1), u2 = u * u, u3 = u2 * u;
   const f = THREE.MathUtils.clamp(
-    THREE.MathUtils.mapLinear(alt, HOURS[k].alt, HOURS[k + 1].alt, hourAnchors[k], hourAnchors[k + 1]), 0, 1);
+    (2 * u3 - 3 * u2 + 1) * hourAnchors[k] + (u3 - 2 * u2 + u) * h * (hourSlopes[k] || 0) +
+    (-2 * u3 + 3 * u2) * hourAnchors[k + 1] + (u3 - u2) * h * (hourSlopes[k + 1] || 0), 0, 1);
   // height: above the horizon while the sun is up, under it after
   const y = sunDeg >= 0 ? -7 * THREE.MathUtils.smoothstep(sunDeg, 0, 12) : 4 * THREE.MathUtils.smoothstep(-sunDeg, 0, 4.5);
-  if (hourVertical) {
-    hourSun.style.left = "50%";
-    hourSun.style.top = `${(f * 100).toFixed(2)}%`;
-    hourSun.style.transform = "translate(-50%, -50%)";
-  } else {
-    hourSun.style.top = "50%";
-    hourSun.style.left = `${(f * 100).toFixed(2)}%`;
-    hourSun.style.transform = `translate(-50%, ${y.toFixed(2)}px)`;
-  }
+  // sub-pixel transform on the compositor: left/top snap to whole pixels, which at
+  // the evening's slow drift reads as a quartz tick instead of a sweep
+  const p = (f * hourLen - 2.5).toFixed(3);
+  hourSun.style.transform = hourVertical
+    ? `translate3d(-50%, ${p}px, 0)`
+    : `translate3d(${p}px, ${y.toFixed(3)}px, 0)`;
   hourSun.style.opacity = sunDeg >= 0 ? 1 : 1 - 0.6 * THREE.MathUtils.smoothstep(-sunDeg, 0, 3);
   hourInk(sunDeg);
   const i = hourIndexAt(alt);
